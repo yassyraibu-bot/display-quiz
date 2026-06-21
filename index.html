@@ -619,6 +619,12 @@ async function cloudPush(){
     await gistFetch("PATCH","/gists/"+settings.sync.gistId,{files:{[GIST_FILE]:{content:content}}});
   }
 }
+async function findGist(){
+  try{var list=await gistFetch("GET","/gists?per_page=100");
+    for(var i=0;i<list.length;i++){if(list[i].files&&list[i].files[GIST_FILE])return list[i].id;}
+  }catch(e){}
+  return null;
+}
 async function cloudPull(){
   if(!settings.sync||!settings.sync.token||!settings.sync.gistId)return false;
   const g=await gistFetch("GET","/gists/"+settings.sync.gistId);
@@ -1660,12 +1666,12 @@ function renderSettings(){
   yq("#sy_gid").value=settings.sync.gistId||"";
   yq("#sy_auto").checked=settings.sync.auto!==false;
   function fillSync(){yq("#sy_gid").value=settings.sync.gistId||"";
-    yq("#sy_note").textContent=settings.sync.token?(settings.sync.gistId?("接続済み。Gist ID: "+settings.sync.gistId+"（別端末ではこのIDを入力）"):"トークン設定済み・Gist未作成"):"未接続。";}
+    yq("#sy_note").textContent=settings.sync.token?(settings.sync.gistId?("接続済み。Gist ID: "+settings.sync.gistId+"  ← 全端末でこのIDが一致している必要があります"):"トークン設定済み・Gist未作成"):"未接続。";}
   fillSync();
   function readSyncFields(){settings.sync.token=yq("#sy_tok").value.trim();settings.sync.gistId=yq("#sy_gid").value.trim();settings.sync.auto=yq("#sy_auto").checked;localStorage.setItem(LS_SET,JSON.stringify(settings));}
   yq("#sy_conn").onclick=async()=>{readSyncFields();if(!settings.sync.token){toast("トークンを入力してください");return;}
     const b=yq("#sy_conn");b.disabled=true;b.textContent="接続中…";
-    try{await cloudPull();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}
+    try{if(!settings.sync.gistId){var fg=await findGist();if(fg){settings.sync.gistId=fg;localStorage.setItem(LS_SET,JSON.stringify(settings));}}await cloudPull();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}
     catch(e){alert("同期失敗: "+e.message);b.disabled=false;b.textContent="接続して同期";}};
   yq("#sy_now").onclick=async()=>{readSyncFields();if(!settings.sync.token){toast("先にトークンを設定してください");return;}
     try{await cloudPull();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}catch(e){alert("同期失敗: "+e.message);}};
