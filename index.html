@@ -139,7 +139,9 @@ const TYPE={mc:"4択",fill:"穴埋め",reason:"記述(理由)"};
 const LS_PROG="dq_progress_v1", LS_USERQ="dq_userq_v1", LS_SET="dq_settings_v1", LS_HIST="dq_history_v1", LS_HIDDEN="dq_hidden_v1";
 const LS_USAGE="dq_usage_v1";
 const LS_FEEDBACK="dq_feedback_v1";
-const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET,LS_USAGE,LS_FEEDBACK]);
+const LS_COLL="dq_collections_v1";
+const LS_NOTES="dq_notes_v1";
+const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET,LS_USAGE,LS_FEEDBACK,LS_COLL,LS_NOTES]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -563,6 +565,8 @@ let history=store.get(LS_HIST,[]);
 let hidden=new Set(store.get(LS_HIDDEN,[]));
 let usage=store.get(LS_USAGE,[]);
 let feedback=store.get(LS_FEEDBACK,[]);
+let collections=store.get(LS_COLL,[]);
+let notes=store.get(LS_NOTES,{});
 
 function allQuestions(){return SEED.concat(userQ);}
 function saveProgress(){store.set(LS_PROG,progress);}
@@ -601,7 +605,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs,usage:usage,feedback:feedback};}
+function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs,usage:usage,feedback:feedback,collections:collections,notes:notes};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -651,6 +655,9 @@ function mergeCloud(cloud){
   var fts=new Set((feedback||[]).map(function(x){return x.t;}));
   (cloud.feedback||[]).forEach(function(x){if(x&&!fts.has(x.t)){feedback.push(x);fts.add(x.t);}});
   feedback.sort(function(a,b){return a.t-b.t;});if(feedback.length>2000)feedback=feedback.slice(-2000);
+  var cmap={};(collections||[]).forEach(function(c){cmap[c.id]=c;});
+  (cloud.collections||[]).forEach(function(c){if(!c||!c.id)return;if(!cmap[c.id]){collections.push(c);cmap[c.id]=c;}else{var exc=cmap[c.id];var cset=new Set(exc.qids);(c.qids||[]).forEach(function(x){if(!cset.has(x)){exc.qids.push(x);cset.add(x);}});}});
+  var cnotes=cloud.notes||{};Object.keys(cnotes).forEach(function(k){if(!notes[k])notes[k]=cnotes[k];});
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
   // 直接書き込み（store.set経由だと同期ループになるため）
   localStorage.setItem(LS_USERQ,JSON.stringify(userQ));
@@ -659,6 +666,8 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_HIST,JSON.stringify(history));
   localStorage.setItem(LS_USAGE,JSON.stringify(usage));
   localStorage.setItem(LS_FEEDBACK,JSON.stringify(feedback));
+  localStorage.setItem(LS_COLL,JSON.stringify(collections));
+  localStorage.setItem(LS_NOTES,JSON.stringify(notes));
   localStorage.setItem(LS_SET,JSON.stringify(settings));
 }
 function appendSyncBar(host){
@@ -763,6 +772,21 @@ function renderHome(){
   srs.appendChild(sbtn);
   srs.appendChild(el("p","small muted",`正解で次回出題が先送り（${settings.srs.step1}→${settings.srs.step2}→…日, 易しさ係数で間隔拡大）、不正解で約${settings.srs.lapseMin}分後に再出題。間隔は「設定」で変更できます。`));
   m.appendChild(srs);
+  if(collections.length){
+    var cc=el("div","card");
+    cc.appendChild(el("h2",null,"⭐ コレクション（お気に入り）"));
+    collections.forEach(function(c){
+      var act=questionsActive().filter(function(qq){return c.qids.indexOf(qq.id)>=0;});
+      var rowx=el("div","genitem");
+      rowx.appendChild(el("div",null,`<b>${escapeHtml(c.name)}</b> <span class="small muted">${act.length}問</span>`));
+      var br=el("div","row");
+      var go=el("button","btn",act.length?"▶ 出題":"（出題可能な問題なし）");go.disabled=!act.length;go.onclick=(function(list){return function(){startQuiz(list);};})(act);
+      var rn=el("button","btn sec","✏ 名前変更");rn.onclick=(function(col){return function(){var nm=prompt("新しい名前",col.name);if(nm&&nm.trim()){col.name=nm.trim();saveCollections();renderHome();}};})(c);
+      var rmc=el("button","btn sec","🗑 削除");rmc.onclick=(function(col){return function(){if(confirm(col.name+" を削除しますか？（問題自体は消えません）")){collections=collections.filter(function(x){return x.id!==col.id;});saveCollections();renderHome();}};})(c);
+      br.appendChild(go);br.appendChild(rn);br.appendChild(rmc);rowx.appendChild(br);cc.appendChild(rowx);
+    });
+    m.appendChild(cc);
+  }
   const weak=weakList();
   if(weak.length){
     const wc=el("div","card");
@@ -806,6 +830,14 @@ function showQuestion(){
     diffPill(q.difficulty)+` <span class="pill">${TYPE[q.type]}</span> `+
     q.category.map(c=>`<span class="tag">${escapeHtml(c)}</span>`).join("")+
     (p.wrong>0?` <span class="pill" style="color:var(--ng);border-color:var(--ng)">過去${p.wrong}回ミス</span>`:"")));
+  var tools=el("div","row");tools.style.margin="2px 0 8px";
+  var favBtn=el("button","btn sec",collectionsHaving(q.id).length?"⭐ コレクション登録済み":"☆ コレクション");
+  var memoBtn=el("button","btn sec",(notes[q.id]&&notes[q.id].trim())?"📝 メモ●":"📝 メモ");
+  tools.appendChild(favBtn);tools.appendChild(memoBtn);card.appendChild(tools);
+  var favBox=el("div");card.appendChild(favBox);
+  var memoBox=el("div");card.appendChild(memoBox);
+  favBtn.onclick=function(){if(favBox.innerHTML){favBox.innerHTML="";return;}memoBox.innerHTML="";renderFavPanel(q,favBox,favBtn);};
+  memoBtn.onclick=function(){if(memoBox.innerHTML){memoBox.innerHTML="";return;}favBox.innerHTML="";renderMemoPanel(q,memoBox,memoBtn);};
   if(q.figure)card.appendChild(el("div","figbox",q.figure));
   const qtext=q.type==="fill"?escapeHtml(q.question).replace(/_{2,}/g,'<span class="blank">［　　］</span>'):escapeHtml(q.question);
   card.appendChild(el("div",null,`<div style="font-size:15px;margin-bottom:10px">${qtext}</div>`));
@@ -955,6 +987,36 @@ function showResult(){
 }
 
 /* ====================== Claude 解説 ====================== */
+function saveCollections(){store.set(LS_COLL,collections);}
+function saveNotes(){store.set(LS_NOTES,notes);}
+function collectionsHaving(id){return collections.filter(function(c){return c.qids.indexOf(id)>=0;});}
+function renderFavPanel(q,host,btn){
+  host.innerHTML="";
+  var box=el("div","card");box.style.marginTop="8px";
+  box.appendChild(el("div","small muted","この問題を登録するコレクションを選択（複数可）"));
+  collections.forEach(function(c){
+    var lab=el("label","row");lab.style.cssText="align-items:center;gap:8px;color:var(--txt)";
+    var cb=el("input");cb.type="checkbox";cb.style.width="auto";cb.checked=c.qids.indexOf(q.id)>=0;
+    cb.onchange=function(){if(cb.checked){if(c.qids.indexOf(q.id)<0)c.qids.push(q.id);}else{c.qids=c.qids.filter(function(x){return x!==q.id;});}saveCollections();btn.textContent=collectionsHaving(q.id).length?"⭐ コレクション登録済み":"☆ コレクション";};
+    lab.appendChild(cb);lab.appendChild(document.createTextNode(c.name+" ("+c.qids.length+"問)"));
+    box.appendChild(lab);
+  });
+  var nrow=el("div","row");nrow.style.marginTop="8px";
+  var ni=el("input");ni.type="text";ni.placeholder="新しいコレクション名";ni.style.flex="1";
+  var nb=el("button","btn","＋作成して追加");
+  nb.onclick=function(){var nm=ni.value.trim();if(!nm){toast("名前を入力してください");return;}collections.push({id:"c"+Date.now(),name:nm,qids:[q.id]});saveCollections();renderFavPanel(q,host,btn);btn.textContent="⭐ コレクション登録済み";toast("作成しました");};
+  nrow.appendChild(ni);nrow.appendChild(nb);box.appendChild(nrow);
+  host.appendChild(box);
+}
+function renderMemoPanel(q,host,btn){
+  host.innerHTML="";
+  var box=el("div","card");box.style.marginTop="8px";
+  box.appendChild(el("div","small muted","この問題のメモ（補足情報・覚え方など。答えの推測に繋がる内容にはご注意ください）"));
+  var ta=el("textarea");ta.value=notes[q.id]||"";ta.placeholder="メモを入力";box.appendChild(ta);
+  var row=el("div","row");row.style.marginTop="8px";
+  var sv=el("button","btn","保存");sv.onclick=function(){var v=ta.value;if(v.trim()){notes[q.id]=v;}else{delete notes[q.id];}saveNotes();btn.textContent=(notes[q.id]&&notes[q.id].trim())?"📝 メモ●":"📝 メモ";toast("メモを保存しました");};
+  row.appendChild(sv);box.appendChild(row);host.appendChild(box);
+}
 function logFeedback(q,note){feedback.push({t:Date.now(),qid:q.id,question:q.question,type:q.type,note:note,status:"open"});if(feedback.length>2000)feedback=feedback.slice(-2000);store.set(LS_FEEDBACK,feedback);}
 function buildFixPrompt(q,note){
   var p="あなたはディスプレイ向け半導体の専門家かつ問題校正者です。次のクイズ問題に問題点があります。指摘を踏まえて修正し、JSON配列(要素1個)のみを出力してください(前後に説明文やコードフェンスを付けない)。\n";
