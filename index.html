@@ -106,6 +106,9 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
   .figbox svg{max-width:100%;height:auto}
   .genitem{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--panel2)}
   .genitem .gh{display:flex;gap:8px;align-items:flex-start}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:460px;width:100%;max-height:90vh;overflow:auto}
+  .modal-box table{margin-top:8px}
 </style>
 </head>
 <body>
@@ -121,6 +124,7 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
     <button data-view="add">問題追加</button>
     <button data-view="manage">管理</button>
     <button data-view="stats">成績</button>
+    <button data-view="cost">料金</button>
     <button data-view="settings">設定</button>
   </nav>
 </header>
@@ -133,7 +137,12 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
 const DIFF={1:"易",2:"標準",3:"難"};
 const TYPE={mc:"4択",fill:"穴埋め",reason:"記述(理由)"};
 const LS_PROG="dq_progress_v1", LS_USERQ="dq_userq_v1", LS_SET="dq_settings_v1", LS_HIST="dq_history_v1", LS_HIDDEN="dq_hidden_v1";
-const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET]);
+const LS_USAGE="dq_usage_v1";
+const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET,LS_USAGE]);
+const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
+function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
+function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
+function logUsage(model,inTok,outTok,purpose){var c=costUSD(model,inTok,outTok);usage.push({t:Date.now(),model:model,inTok:inTok,outTok:outTok,cost:c,purpose:purpose});if(usage.length>5000)usage=usage.slice(-5000);store.set(LS_USAGE,usage);return c;}
 
 /* 図のサンプル（ボトムゲート型酸化物TFT断面） */
 const FIG_TFT=`<svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
@@ -547,8 +556,10 @@ let userQ=store.get(LS_USERQ,[]);
 let settings=Object.assign({apiKey:"",model:"claude-haiku-4-5-20251001"},store.get(LS_SET,{}));
 if(!settings.srs||typeof settings.srs!=="object")settings.srs={step1:1,step2:3,lapseMin:10,ease:2.5};
 if(!settings.sync||typeof settings.sync!=="object")settings.sync={token:"",gistId:"",auto:true};
+if(typeof settings.jpyRate!=="number")settings.jpyRate=155;
 let history=store.get(LS_HIST,[]);
 let hidden=new Set(store.get(LS_HIDDEN,[]));
+let usage=store.get(LS_USAGE,[]);
 
 function allQuestions(){return SEED.concat(userQ);}
 function saveProgress(){store.set(LS_PROG,progress);}
@@ -587,7 +598,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs};}
+function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs,usage:usage};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -625,12 +636,16 @@ function mergeCloud(cloud){
   const ts=new Set((history||[]).map(h=>h.t));
   (cloud.history||[]).forEach(h=>{if(h&&!ts.has(h.t)){history.push(h);ts.add(h.t);}});
   history.sort((a,b)=>a.t-b.t);if(history.length>300)history=history.slice(-300);
+  var uts=new Set((usage||[]).map(function(u){return u.t;}));
+  (cloud.usage||[]).forEach(function(u){if(u&&!uts.has(u.t)){usage.push(u);uts.add(u.t);}});
+  usage.sort(function(a,b){return a.t-b.t;});if(usage.length>5000)usage=usage.slice(-5000);
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
   // 直接書き込み（store.set経由だと同期ループになるため）
   localStorage.setItem(LS_USERQ,JSON.stringify(userQ));
   localStorage.setItem(LS_PROG,JSON.stringify(progress));
   localStorage.setItem(LS_HIDDEN,JSON.stringify([...hidden]));
   localStorage.setItem(LS_HIST,JSON.stringify(history));
+  localStorage.setItem(LS_USAGE,JSON.stringify(usage));
   localStorage.setItem(LS_SET,JSON.stringify(settings));
 }
 function initSync(){
@@ -668,6 +683,7 @@ function render(view){
   else if(view==="add")renderAdd();
   else if(view==="manage")renderManage();
   else if(view==="stats")renderStats();
+  else if(view==="cost")renderCost();
   else if(view==="settings")renderSettings();
 }
 
@@ -885,7 +901,7 @@ function buildPrompt(q){
   p+=`\n解説では「なぜそうなるのか」の物理的・回路的な理由を中心に、よくある誤解にも触れてください。`;
   return p;
 }
-async function callClaude(prompt,maxTokens){
+async function callClaude(prompt,maxTokens,purpose){
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"content-type":"application/json","x-api-key":settings.apiKey,
@@ -894,6 +910,7 @@ async function callClaude(prompt,maxTokens){
   });
   if(!res.ok){throw new Error(res.status+" "+(await res.text()).slice(0,200));}
   const data=await res.json();
+  if(data.usage){logUsage(settings.model,data.usage.input_tokens||0,data.usage.output_tokens||0,purpose||"other");}
   return (data.content||[]).map(c=>c.text||"").join("\n");
 }
 async function askClaude(q,container,btn){
@@ -901,7 +918,7 @@ async function askClaude(q,container,btn){
   if(settings.apiKey){
     btn.disabled=true;btn.textContent="🤖 生成中…";
     try{
-      const text=await callClaude(prompt,1024);
+      const text=await callClaude(prompt,1024,"explain");
       const box=el("div","feedback ok");box.style.marginTop="12px";
       box.innerHTML="<b>🤖 Claudeの解説</b><div class='explain' style='margin-top:8px'>"+escapeHtml(text)+"</div>";
       container.appendChild(box);typeset(box);
@@ -1037,9 +1054,16 @@ function renderGen(){
       window.open("https://claude.ai/new","_blank");
       return;
     }
+    const prompt=genPrompt(o);
+    btn.disabled=true;btn.textContent="⚡ 見積り中…";
+    let inTok; try{inTok=await countTokens(prompt);}catch(e){inTok=Math.ceil(prompt.length/3);}
+    const maxOut=4096, outTyp=Math.min(maxOut,o.count*200);
+    btn.disabled=false;btn.textContent="⚡ 生成する";
+    const ok=await confirmGenCost(settings.model,inTok,outTyp,maxOut,settings.jpyRate||155);
+    if(!ok)return;
     btn.disabled=true;btn.textContent="⚡ 生成中…（数十秒）";
     try{
-      const text=await callClaude(genPrompt(o),4096);
+      const text=await callClaude(prompt,4096,"gen");
       const parsed=dedupeNew(parseGenerated(text));
       genBuffer=parsed;showPreview(parsed,preview);
       toast(parsed.length+"問を生成しました（確認して追加）");
@@ -1320,6 +1344,101 @@ function renderStats(){
 }
 
 /* ====================== 設定 ====================== */
+/* ====================== 料金（API利用料）機能 ====================== */
+function ymd(t){var d=new Date(t);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function ym(t){var d=new Date(t);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
+function yy(t){return new Date(t).getFullYear();}
+function costBarSVG(rows,jpy){
+  if(!rows.length)return '<p class="muted">この期間の記録はありません。</p>';
+  var max=Math.max.apply(null,rows.map(function(r){return r.cost;}).concat([1e-9]));
+  var rowH=26,W=700,pad=92,bw=W-pad-150,H=rows.length*rowH+10,s="";
+  rows.forEach(function(r,i){var y=8+i*rowH;var w=bw*r.cost/max;
+    s+='<text x="'+(pad-8)+'" y="'+(y+14)+'" fill="#e6edf3" font-size="11" text-anchor="end">'+escapeHtml(r.label)+'</text>';
+    s+='<rect x="'+pad+'" y="'+(y+2)+'" width="'+bw+'" height="15" rx="3" fill="#222c38"/>';
+    s+='<rect x="'+pad+'" y="'+(y+2)+'" width="'+w.toFixed(1)+'" height="15" rx="3" fill="#38bdf8"/>';
+    s+='<text x="'+(pad+bw+6)+'" y="'+(y+14)+'" fill="#94a3b8" font-size="10">$'+r.cost.toFixed(4)+' (¥'+Math.round(r.cost*jpy)+')</text>';
+  });
+  return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%">'+s+'</svg>';
+}
+async function countTokens(prompt){
+  var res=await fetch("https://api.anthropic.com/v1/messages/count_tokens",{
+    method:"POST",
+    headers:{"content-type":"application/json","x-api-key":settings.apiKey,
+      "anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:settings.model,messages:[{role:"user",content:prompt}]})});
+  if(!res.ok)throw new Error("count_tokens "+res.status);
+  var d=await res.json();return d.input_tokens||0;
+}
+function confirmModal(title,bodyHtml){
+  return new Promise(function(res){
+    var ov=el("div","modal");
+    ov.innerHTML='<div class="modal-box"><h2>'+escapeHtml(title)+'</h2><div>'+bodyHtml+'</div>'+
+      '<div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn sec" id="m_no">キャンセル</button><button class="btn" id="m_yes">承認して実行</button></div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector("#m_yes").onclick=function(){ov.remove();res(true);};
+    ov.querySelector("#m_no").onclick=function(){ov.remove();res(false);};
+  });
+}
+function confirmGenCost(model,inTok,outTyp,maxOut,jpy){
+  var cTyp=costUSD(model,inTok,outTyp),cMax=costUSD(model,inTok,maxOut);
+  var body='<p class="small muted">この生成にかかる<b>想定料金</b>です（Anthropic API・従量課金）。実際の額は応答の長さで変わります。生成後、正確な使用量が「料金」タブに記録されます。</p>'+
+    '<table>'+
+    '<tr><th>モデル</th><td>'+escapeHtml(model)+'</td></tr>'+
+    '<tr><th>入力トークン</th><td>'+inTok.toLocaleString()+'</td></tr>'+
+    '<tr><th>出力トークン</th><td>想定 '+outTyp.toLocaleString()+' 〜 上限 '+maxOut.toLocaleString()+'</td></tr>'+
+    '<tr><th>想定コスト</th><td><b>$'+cTyp.toFixed(4)+'</b> 〜 $'+cMax.toFixed(4)+'（最大）</td></tr>'+
+    '<tr><th>日本円(約¥'+jpy+'/$)</th><td>約 ¥'+(cTyp*jpy).toFixed(1)+' 〜 ¥'+(cMax*jpy).toFixed(1)+'</td></tr>'+
+    '</table>';
+  return confirmModal("AI生成の料金確認（承認）",body);
+}
+function renderCost(){
+  var m=$("#main");m.innerHTML="";
+  var jpy=settings.jpyRate||155, now=Date.now();
+  var today=ymd(now), tm=ym(now), tyr=yy(now);
+  var cToday=0,cMonth=0,cYear=0,cAll=0,nAll=0,inAll=0,outAll=0;
+  usage.forEach(function(u){cAll+=u.cost;nAll++;inAll+=u.inTok;outAll+=u.outTok;
+    if(ymd(u.t)===today)cToday+=u.cost; if(ym(u.t)===tm)cMonth+=u.cost; if(yy(u.t)===tyr)cYear+=u.cost;});
+  var card=el("div","card");
+  card.appendChild(el("h2",null,"💴 API利用料金"));
+  card.appendChild(el("div","stat",
+    '<div class="box"><div class="n">$'+cToday.toFixed(3)+'</div><div class="l">今日 ¥'+Math.round(cToday*jpy)+'</div></div>'+
+    '<div class="box"><div class="n">$'+cMonth.toFixed(3)+'</div><div class="l">今月 ¥'+Math.round(cMonth*jpy)+'</div></div>'+
+    '<div class="box"><div class="n">$'+cYear.toFixed(2)+'</div><div class="l">今年 ¥'+Math.round(cYear*jpy)+'</div></div>'+
+    '<div class="box"><div class="n">$'+cAll.toFixed(2)+'</div><div class="l">累計 ¥'+Math.round(cAll*jpy)+'</div></div>'+
+    '<div class="box"><div class="n">'+nAll+'</div><div class="l">呼出回数</div></div>'));
+  card.appendChild(el("p","small muted","累計トークン: 入力 "+inAll.toLocaleString()+" / 出力 "+outAll.toLocaleString()+" ｜ 為替レート ¥"+jpy+"/$（下で変更可）"));
+  m.appendChild(card);
+  var dmap={};usage.forEach(function(u){var k=ymd(u.t);dmap[k]=(dmap[k]||0)+u.cost;});
+  var days=[];for(var i=29;i>=0;i--){var dd=new Date(now-i*DAY);var k=ymd(dd.getTime());if(dmap[k])days.push({label:k.slice(5),cost:dmap[k]});}
+  var dc=el("div","card");dc.appendChild(el("h2",null,"📅 日次（直近30日）"));dc.appendChild(el("div",null,costBarSVG(days,jpy)));m.appendChild(dc);
+  var mmap={};usage.forEach(function(u){var k=ym(u.t);mmap[k]=(mmap[k]||0)+u.cost;});
+  var months=[];for(var j=11;j>=0;j--){var d2=new Date(now);d2.setMonth(d2.getMonth()-j);var k2=ym(d2.getTime());if(mmap[k2])months.push({label:k2,cost:mmap[k2]});}
+  var mc=el("div","card");mc.appendChild(el("h2",null,"🗓 月次（直近12ヶ月）"));mc.appendChild(el("div",null,costBarSVG(months,jpy)));m.appendChild(mc);
+  var ymap={};usage.forEach(function(u){var k=yy(u.t);ymap[k]=ymap[k]||{cost:0,n:0,inn:0,out:0};ymap[k].cost+=u.cost;ymap[k].n++;ymap[k].inn+=u.inTok;ymap[k].out+=u.outTok;});
+  var yc=el("div","card");yc.appendChild(el("h2",null,"📆 年次"));
+  var yk=Object.keys(ymap).sort(function(a,b){return b-a;});
+  if(!yk.length)yc.appendChild(el("p","muted","記録がありません。"));
+  else{var yt=el("table");yt.innerHTML="<tr><th>年</th><th>コスト(USD)</th><th>円</th><th>回数</th><th>入力tok</th><th>出力tok</th></tr>";
+    yk.forEach(function(k){var v=ymap[k];yt.appendChild(el("tr",null,"<td>"+k+"</td><td>$"+v.cost.toFixed(4)+"</td><td>¥"+Math.round(v.cost*jpy)+"</td><td>"+v.n+"</td><td>"+v.inn.toLocaleString()+"</td><td>"+v.out.toLocaleString()+"</td>"));});
+    yc.appendChild(yt);}
+  m.appendChild(yc);
+  var rc=el("div","card");rc.appendChild(el("h2",null,"最近の呼び出し（最新30件）"));
+  var PL={gen:"問題生成",explain:"解説",other:"その他"};
+  if(!usage.length)rc.appendChild(el("p","muted","まだAPI呼び出しはありません。AI生成や解説を使うと記録されます。"));
+  else{var rt=el("table");rt.innerHTML="<tr><th>日時</th><th>用途</th><th>モデル</th><th>入力</th><th>出力</th><th>コスト</th></tr>";
+    usage.slice(-30).reverse().forEach(function(u){var dt=new Date(u.t);var ds=(dt.getMonth()+1)+"/"+dt.getDate()+" "+String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0");
+      rt.appendChild(el("tr",null,"<td>"+ds+"</td><td>"+(PL[u.purpose]||u.purpose)+"</td><td class='small'>"+escapeHtml((u.model||"").replace("claude-",""))+"</td><td>"+u.inTok+"</td><td>"+u.outTok+"</td><td>$"+u.cost.toFixed(4)+"</td>"));});
+    rc.appendChild(rt);}
+  m.appendChild(rc);
+  var sc=el("div","card");sc.appendChild(el("h2",null,"設定"));
+  sc.innerHTML+='<label>為替レート（円/USD・概算表示用）</label><input id="cs_jpy" type="number" min="1" step="1" style="max-width:160px">';
+  var row=el("div","row");row.style.marginTop="12px";
+  var sv=el("button","btn","レートを保存");sv.onclick=function(){var v=parseFloat(sc.querySelector("#cs_jpy").value);if(v>0){settings.jpyRate=v;store.set(LS_SET,settings);toast("保存しました");renderCost();}};
+  var rs=el("button","btn sec","料金ログをリセット");rs.onclick=function(){if(confirm("API利用料金のログをすべて消去しますか？")){usage=[];store.set(LS_USAGE,usage);toast("リセットしました");renderCost();}};
+  row.appendChild(sv);row.appendChild(rs);sc.appendChild(row);m.appendChild(sc);
+  sc.querySelector("#cs_jpy").value=jpy;
+}
+
 function renderSettings(){
   const m=$("#main");m.innerHTML="";
   const card=el("div","card");
