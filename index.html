@@ -782,7 +782,7 @@ function render(view){
 }
 
 /* ====================== 出題設定画面 ====================== */
-let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,unseenOnly:false,keyword:"",order:"random",examMode:false};
+let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,unseenOnly:false,keyword:"",order:"random",examMode:false,sources:new Set(),author:"",selectionOnly:false};
 function renderHome(){
   const m=$("#main");m.innerHTML="";
   (function(){
@@ -835,6 +835,13 @@ function renderHome(){
   const examChip=el("span","chip"+(filter.examMode?" on":""),"📝 試験モード（採点・解説は最後）");
   examChip.onclick=()=>{filter.examMode=!filter.examMode;renderHome();};
   opt.appendChild(examChip);
+  if(selection.length){const selChip=el("span","chip"+(filter.selectionOnly?" on":""),"★ セレクションのみ");selChip.onclick=()=>{filter.selectionOnly=!filter.selectionOnly;renderHome();};opt.appendChild(selChip);}
+  card.appendChild(el("h3",null,"出題元・出題者"));
+  var srcWrap=el("div","row");
+  [["ai","AI生成"],["individual","個人作成"],["builtin","内蔵"]].forEach(function(pr){var c=el("span","chip"+(filter.sources.has(pr[0])?" on":""),pr[1]);c.onclick=function(){if(filter.sources.has(pr[0]))filter.sources.delete(pr[0]);else filter.sources.add(pr[0]);renderHome();};srcWrap.appendChild(c);});
+  card.appendChild(srcWrap);
+  var authors=users.filter(function(u){return allQuestions().some(function(q){return q.author===u.id;});});
+  if(authors.length){var asel=el("select");asel.innerHTML=`<option value="">（出題者で絞り込み: すべて）</option>`+authors.map(function(u){return `<option value="${u.id}">作成者: ${escapeHtml(u.name)}</option>`;}).join("");asel.value=filter.author||"";asel.onchange=function(){filter.author=asel.value;renderHome();};card.appendChild(asel);}
   opt.appendChild(el("span","small muted","出題数"));
   const cntInput=el("input");cntInput.type="number";cntInput.min=1;cntInput.value=filter.count;cntInput.style.width="80px";
   cntInput.onchange=()=>{filter.count=Math.max(1,parseInt(cntInput.value)||10);};
@@ -906,6 +913,9 @@ function poolFromFilter(){
     if(!filter.types.has(q.type))return false;
     if(filter.weakOnly && getProg(q.id).wrong<=0)return false;
     if(filter.unseenOnly && getProg(q.id).seen>0)return false;
+    if(filter.selectionOnly && selection.indexOf(q.id)<0)return false;
+    if(filter.sources.size){var __src=!q.author?"builtin":(q.author==="ai"?"ai":"individual");if(!filter.sources.has(__src))return false;}
+    if(filter.author && q.author!==filter.author)return false;
     if(filter.keyword){var __t=filter.keyword.trim().toLowerCase().split(/[\s　]+/).filter(Boolean).map(norm);var __h=norm(q.question+" "+(q.explanation||"")+" "+(q.category||[]).join(" ")+" "+(q.choices?q.choices.join(" "):"")+" "+((q.answer&&q.answer.join)?q.answer.join(" "):"")+" "+(q.modelAnswer||"")+" "+((q.keyPoints&&q.keyPoints.join)?q.keyPoints.join(" "):""));if(!__t.every(function(x){return __h.indexOf(x)>=0;}))return false;}
     return true;
   });
@@ -920,6 +930,25 @@ function startQuiz(pool,keepOrder){
   session={qs,idx:0,correct:0,results:[],exam:filter.examMode};
   setNav("");showQuestion();
 }
+function authorMetaHtml(q){
+  var s="";
+  if(!q.author){if(/^[sn]\d/.test(q.id))s+=` <span class="pill">内蔵</span>`;}
+  else if(q.author==="ai")s+=` <span class="pill" style="color:#a78bfa;border-color:#a78bfa">AI生成</span>`;
+  else {var u=users.filter(function(x){return x.id===q.author;})[0];s+=` <span class="pill" style="color:var(--accent);border-color:var(--accent)">作成: ${escapeHtml(u?u.name:"不明")}</span>`;}
+  if(q.author&&q.author!=="ai"&&q.knowledgeType){var kl={general:"一般知識",knowhow:"ノウハウ",both:"一般知識・ノウハウ"}[q.knowledgeType]||q.knowledgeType;s+=` <span class="tag">${escapeHtml(kl)}</span>`;}
+  if(selection.indexOf(q.id)>=0)s+=` <span class="pill" style="color:var(--warn);border-color:var(--warn)">★セレクション</span>`;
+  return s;
+}
+function renderQfbPanel(q,host,btn){
+  host.innerHTML="";
+  var box=el("div","card");box.style.marginTop="8px";
+  box.appendChild(el("div","small muted","この問題への疑問点・指摘（チームで共有。校正用の報告とは別です）"));
+  qfeedback.filter(function(x){return x.qid===q.id;}).slice().reverse().forEach(function(x){var u=users.filter(function(y){return y.id===x.uid;})[0];box.appendChild(el("div","small muted","・"+escapeHtml(x.note)+" （"+(u?u.name:"?")+" / "+new Date(x.t).toLocaleDateString()+"）"));});
+  var ta=el("textarea");ta.placeholder="疑問点・指摘を入力";box.appendChild(ta);
+  var r=el("div","row");r.style.marginTop="8px";var sv=el("button","btn","送信");
+  sv.onclick=function(){var n=ta.value.trim();if(!n){toast("内容を入力してください");return;}qfeedback.push({t:Date.now(),qid:q.id,uid:currentUser,note:n});saveQFB();btn.textContent="💬 疑問・指摘 ("+qfeedback.filter(function(x){return x.qid===q.id;}).length+")";renderQfbPanel(q,host,btn);toast("送信しました");};
+  r.appendChild(sv);box.appendChild(r);host.appendChild(box);
+}
 function showQuestion(){
   const m=$("#main");m.innerHTML="";
   const q=session.qs[session.idx];
@@ -932,15 +961,21 @@ function showQuestion(){
   card.appendChild(el("div","qmeta",
     diffPill(q.difficulty)+` <span class="pill">${TYPE[q.type]}</span> `+
     q.category.map(c=>`<span class="tag">${escapeHtml(c)}</span>`).join("")+
-    (p.wrong>0?` <span class="pill" style="color:var(--ng);border-color:var(--ng)">過去${p.wrong}回ミス</span>`:"")));
+    (p.wrong>0?` <span class="pill" style="color:var(--ng);border-color:var(--ng)">過去${p.wrong}回ミス</span>`:"")+authorMetaHtml(q)));
   var tools=el("div","row");tools.style.margin="2px 0 8px";
   var favBtn=el("button","btn sec",collectionsHaving(q.id).length?"⭐ コレクション登録済み":"☆ コレクション");
   var memoBtn=el("button","btn sec",(notes[q.id]&&notes[q.id].trim())?"📝 メモ●":"📝 メモ");
-  tools.appendChild(favBtn);tools.appendChild(memoBtn);card.appendChild(tools);
+  var qfbN0=qfeedback.filter(function(x){return x.qid===q.id;}).length;
+  var qfbBtn=el("button","btn sec","💬 疑問・指摘"+(qfbN0?(" ("+qfbN0+")"):""));
+  tools.appendChild(favBtn);tools.appendChild(memoBtn);tools.appendChild(qfbBtn);
+  if(isLeader()){var selBtn=el("button","btn sec",selection.indexOf(q.id)>=0?"★ セレクション解除":"☆ セレクション登録");selBtn.onclick=(function(qq,btn){return function(){var i=selection.indexOf(qq.id);if(i>=0)selection.splice(i,1);else selection.push(qq.id);saveSelection();btn.textContent=selection.indexOf(qq.id)>=0?"★ セレクション解除":"☆ セレクション登録";toast("セレクションを更新しました");};})(q,selBtn);tools.appendChild(selBtn);}
+  card.appendChild(tools);
   var favBox=el("div");card.appendChild(favBox);
   var memoBox=el("div");card.appendChild(memoBox);
-  favBtn.onclick=function(){if(favBox.innerHTML){favBox.innerHTML="";return;}memoBox.innerHTML="";renderFavPanel(q,favBox,favBtn);};
-  memoBtn.onclick=function(){if(memoBox.innerHTML){memoBox.innerHTML="";return;}favBox.innerHTML="";renderMemoPanel(q,memoBox,memoBtn);};
+  var qfbBox=el("div");card.appendChild(qfbBox);
+  favBtn.onclick=function(){if(favBox.innerHTML){favBox.innerHTML="";return;}memoBox.innerHTML="";qfbBox.innerHTML="";renderFavPanel(q,favBox,favBtn);};
+  memoBtn.onclick=function(){if(memoBox.innerHTML){memoBox.innerHTML="";return;}favBox.innerHTML="";qfbBox.innerHTML="";renderMemoPanel(q,memoBox,memoBtn);};
+  qfbBtn.onclick=function(){if(qfbBox.innerHTML){qfbBox.innerHTML="";return;}favBox.innerHTML="";memoBox.innerHTML="";renderQfbPanel(q,qfbBox,qfbBtn);};
   if(q.figure)card.appendChild(el("div","figbox",q.figure));
   const qtext=q.type==="fill"?escapeHtml(q.question).replace(/_{2,}/g,'<span class="blank">［　　］</span>'):escapeHtml(q.question);
   card.appendChild(el("div",null,`<div style="font-size:15px;margin-bottom:10px">${qtext}</div>`));
@@ -1269,7 +1304,7 @@ function parseGenerated(text){
       q.modelAnswer=o.modelAnswer.trim();
       q.keyPoints=Array.isArray(o.keyPoints)?o.keyPoints.map(String):[];
     }
-    out.push(q);
+    q.author="ai";out.push(q);
   });
   if(!out.length)throw new Error("有効な問題を抽出できませんでした。");
   return out;
@@ -1440,6 +1475,8 @@ function questionFormCard(existing,onSave,saveLabel){
     <select id="a_type"><option value="mc">4択</option><option value="fill">穴埋め（本文に ___ を書く）</option><option value="reason">記述（理由説明）</option></select>
     <label>難易度</label>
     <select id="a_diff"><option value="1">易</option><option value="2">標準</option><option value="3">難</option></select>
+    <label>知識種別（あなたが作成する問題のカテゴリ）</label>
+    <select id="a_know"><option value="general">一般知識</option><option value="knowhow">ノウハウ</option><option value="both">一般知識・ノウハウ両方</option></select>
     <label>カテゴリ（カンマ区切り 例: IGZO, プロセス）</label>
     <input id="a_cat" type="text" placeholder="IGZO, デバイス物理">
     <label>問題文（数式は $...$ で記述可）</label>
@@ -1459,6 +1496,7 @@ function questionFormCard(existing,onSave,saveLabel){
   q("#a_q").value=e.question||"";
   q("#a_fig").value=e.figure||"";
   q("#a_exp").value=e.explanation||"";
+  if(q("#a_know"))q("#a_know").value=e.knowledgeType||"general";
   const figprev=q("#a_figprev");
   function updFigPrev(){const v=q("#a_fig").value.trim();figprev.innerHTML=v?'<div class="figbox">'+v+'</div>':"";}
   q("#a_fig").addEventListener("input",updFigPrev);updFigPrev();
@@ -1488,6 +1526,7 @@ function questionFormCard(existing,onSave,saveLabel){
     if(!cat.length){toast("カテゴリを1つ以上入力してください");return;}
     const obj={id:e.id||("u"+Date.now()),type:t,difficulty:+q("#a_diff").value,
       category:cat,question:qt,explanation:q("#a_exp").value.trim()};
+    obj.author=(e&&e.author)?e.author:currentUser;obj.knowledgeType=q("#a_know")?q("#a_know").value:"general";
     const fig=q("#a_fig").value.trim();if(fig)obj.figure=fig;
     if(t==="mc"){
       const lines=q("#a_choices").value.split("\n").map(s=>s.trim()).filter(Boolean);
@@ -1581,6 +1620,22 @@ function renderManage(){
       it.appendChild(br);it.appendChild(fixBox);fbc.appendChild(it);
     });
     m.appendChild(fbc);
+  }
+  if(qfeedback.length){
+    var qc=el("div","card");
+    qc.appendChild(el("h2",null,"💬 回答者フィードバック（注目度順）"));
+    var byq={};qfeedback.forEach(function(x){(byq[x.qid]=byq[x.qid]||[]).push(x);});
+    var rows=Object.keys(byq).map(function(qid){return {qid:qid,items:byq[qid]};}).sort(function(a,b){return b.items.length-a.items.length;});
+    rows.forEach(function(rw){
+      var q=allQuestions().filter(function(x){return x.id===rw.qid;})[0];
+      var it=el("div","genitem");
+      it.appendChild(el("div",null,`<b>${rw.items.length}件</b> ｜ ${escapeHtml(q?q.question.slice(0,60):"(削除済み "+rw.qid+")")}`));
+      var box=el("div");
+      var tg=el("button","btn sec","内容を見る");
+      tg.onclick=(function(items,host){return function(){if(host.innerHTML){host.innerHTML="";return;}items.slice().reverse().forEach(function(x){var u=users.filter(function(y){return y.id===x.uid;})[0];host.appendChild(el("div","small muted","・"+escapeHtml(x.note)+" （"+(u?u.name:"?")+" / "+new Date(x.t).toLocaleDateString()+"）"));});};})(rw.items,box);
+      var r=el("div","row");r.style.marginTop="6px";r.appendChild(tg);it.appendChild(r);it.appendChild(box);qc.appendChild(it);
+    });
+    m.appendChild(qc);
   }
   const card=el("div","card");
   card.appendChild(el("h2",null,"問題の管理（編集・削除・出題除外）"));
