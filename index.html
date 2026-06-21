@@ -561,6 +561,7 @@ if(!settings.srs||typeof settings.srs!=="object")settings.srs={step1:1,step2:3,l
 if(!settings.sync||typeof settings.sync!=="object")settings.sync={token:"",gistId:"",auto:true};
 if(typeof settings.jpyRate!=="number")settings.jpyRate=155;
 if(typeof settings.simThreshold!=="number")settings.simThreshold=0.45;
+if(typeof settings.dailyGoal!=="number")settings.dailyGoal=10;
 let history=store.get(LS_HIST,[]);
 let hidden=new Set(store.get(LS_HIDDEN,[]));
 let usage=store.get(LS_USAGE,[]);
@@ -719,9 +720,23 @@ function render(view){
 }
 
 /* ====================== 出題設定画面 ====================== */
-let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,unseenOnly:false,keyword:""};
+let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,unseenOnly:false,keyword:"",order:"random",examMode:false};
 function renderHome(){
   const m=$("#main");m.innerHTML="";
+  (function(){
+    var goal=settings.dailyGoal||10;
+    var tc=history.filter(function(h){return ymd(h.t)===ymd(Date.now());}).reduce(function(s,h){return s+h.total;},0);
+    var streak=computeStreak();
+    var dc=el("div","card");
+    dc.appendChild(el("h2",null,"🎯 今日の学習"));
+    var pct=Math.min(100,Math.round(tc/goal*100));
+    dc.appendChild(el("div","stat",`<div class="box"><div class="n">${tc}/${goal}</div><div class="l">今日解いた問題</div></div><div class="box"><div class="n">${tc>=goal?"達成 ✅":(goal-tc)+"問"}</div><div class="l">${tc>=goal?"目標達成":"目標まで"}</div></div><div class="box"><div class="n">🔥 ${streak}</div><div class="l">連続学習日数</div></div>`));
+    var pb=el("div","progressbar");var pbi=el("div");pbi.style.width=pct+"%";pb.appendChild(pbi);dc.appendChild(pb);
+    var gr=el("div","row");gr.style.marginTop="6px";gr.appendChild(el("span","small muted","1日の目標"));
+    var gi=el("input");gi.type="number";gi.min=1;gi.value=goal;gi.style.width="80px";
+    gi.onchange=function(){settings.dailyGoal=Math.max(1,parseInt(gi.value)||10);store.set(LS_SET,settings);renderHome();};
+    gr.appendChild(gi);dc.appendChild(gr);m.appendChild(dc);
+  })();
   const cats=uniqueCategories();
   const card=el("div","card");
   card.appendChild(el("h2",null,"出題設定"));
@@ -752,6 +767,12 @@ function renderHome(){
   const newChip=el("span","chip"+(filter.unseenOnly?" on":""),"🆕 未出題（解いたことがない）のみ");
   newChip.onclick=()=>{filter.unseenOnly=!filter.unseenOnly;if(filter.unseenOnly)filter.weakOnly=false;renderHome();};
   opt.appendChild(newChip);
+  const staleChip=el("span","chip"+(filter.order==="stale"?" on":""),"🕒 久しぶり順（しばらく解いていない順）");
+  staleChip.onclick=()=>{filter.order=(filter.order==="stale"?"random":"stale");renderHome();};
+  opt.appendChild(staleChip);
+  const examChip=el("span","chip"+(filter.examMode?" on":""),"📝 試験モード（採点・解説は最後）");
+  examChip.onclick=()=>{filter.examMode=!filter.examMode;renderHome();};
+  opt.appendChild(examChip);
   opt.appendChild(el("span","small muted","出題数"));
   const cntInput=el("input");cntInput.type="number";cntInput.min=1;cntInput.value=filter.count;cntInput.style.width="80px";
   cntInput.onchange=()=>{filter.count=Math.max(1,parseInt(cntInput.value)||10);};
@@ -762,7 +783,7 @@ function renderHome(){
   const start=el("button","btn","▶ クイズ開始");
   start.id="home_start";
   start.disabled=pool.length===0;
-  start.onclick=()=>startQuiz(pool);
+  start.onclick=()=>{if(filter.order==="stale"){var ord=pool.slice().sort(function(a,b){return ((progress[a.id]&&progress[a.id].last)||0)-((progress[b.id]&&progress[b.id].last)||0);});startQuiz(ord,true);}else startQuiz(pool);};
   card.appendChild(start);
   m.appendChild(card);
   const due=dueQuestions();
@@ -832,9 +853,9 @@ function weakList(){return questionsActive().filter(q=>getProg(q.id).wrong>0)
 
 /* ====================== クイズ進行 ====================== */
 let session=null;
-function startQuiz(pool){
-  const qs=shuffle(pool).slice(0,filter.count);
-  session={qs,idx:0,correct:0,results:[]};
+function startQuiz(pool,keepOrder){
+  const qs=(keepOrder?pool.slice():shuffle(pool)).slice(0,filter.count);
+  session={qs,idx:0,correct:0,results:[],exam:filter.examMode};
   setNav("");showQuestion();
 }
 function showQuestion(){
@@ -868,9 +889,13 @@ function showQuestion(){
   else renderReason(q,area);
   typeset(card);
 }
-function afterAnswer(q,correct,area){
-  const p=getProg(q.id);p.seen++;p[correct?"correct":"wrong"]++;p.lastResult=correct;updateSRS(q.id,correct);saveProgress();
+function recordResult(q,correct){
+  const p=getProg(q.id);p.seen++;p[correct?"correct":"wrong"]++;p.lastResult=correct;p.last=Date.now();updateSRS(q.id,correct);saveProgress();
   session.results.push({q,correct});if(correct)session.correct++;
+}
+function advanceQuiz(){session.idx++;session.idx<session.qs.length?showQuestion():showResult();}
+function afterAnswer(q,correct,area){
+  recordResult(q,correct);
   const fb=el("div","feedback "+(correct?"ok":"ng"));
   fb.innerHTML=`<b>${correct?"⭕ 正解":"❌ 不正解"}</b>`;area.appendChild(fb);
   const exp=el("div","card");exp.style.marginTop="14px";
@@ -910,7 +935,7 @@ function afterAnswer(q,correct,area){
   area.appendChild(exp);
   const nav2=el("div","row");nav2.style.marginTop="14px";
   const next=el("button","btn",session.idx+1<session.qs.length?"次の問題 ▶":"結果を見る ✓");
-  next.onclick=()=>{session.idx++;session.idx<session.qs.length?showQuestion():showResult();};
+  next.onclick=()=>advanceQuiz();
   nav2.appendChild(next);area.appendChild(nav2);
   typeset(exp);
   next.scrollIntoView({behavior:"smooth",block:"nearest"});
@@ -923,6 +948,7 @@ function renderMC(q,area){
     b.onclick=()=>{
       if(done)return;done=true;
       const correct=i===q.answer;
+      if(session.exam){recordResult(q,correct);advanceQuiz();return;}
       btns.forEach(x=>{if(x.dataset.i==q.answer)x.classList.add("correct");});
       if(!correct)b.classList.add("wrong");
       afterAnswer(q,correct,area);
@@ -948,6 +974,7 @@ function renderFill(q,area){
     var ok=true;
     for(var j=0;j<inputs.length;j++){var a=norm(inputs[j].value);if(!sets[j].some(function(x){return norm(x)===a;}))ok=false;}
     inputs.forEach(function(x){x.disabled=true;});sub.disabled=true;
+    if(session.exam){recordResult(q,ok);advanceQuiz();return;}
     var lines=sets.map(function(s,i){return (sets.length>1?("空欄"+(i+1)+": "):"")+"あなた="+escapeHtml(inputs[i].value)+" ／ 許容="+s.map(escapeHtml).join(" , ");}).join("<br>");
     area.appendChild(el("div","small muted",lines));
     afterAnswer(q,ok,area);
@@ -973,8 +1000,8 @@ function renderReason(q,area){
     const g=el("div","row");g.style.marginTop="8px";
     const okB=el("button","btn","⭕ 理解できた（正解）");
     const ngB=el("button","btn sec","❌ 復習が必要（不正解）");
-    okB.onclick=()=>{okB.disabled=ngB.disabled=true;afterAnswer(q,true,area);};
-    ngB.onclick=()=>{okB.disabled=ngB.disabled=true;afterAnswer(q,false,area);};
+    okB.onclick=()=>{okB.disabled=ngB.disabled=true;if(session.exam){recordResult(q,true);advanceQuiz();}else afterAnswer(q,true,area);};
+    ngB.onclick=()=>{okB.disabled=ngB.disabled=true;if(session.exam){recordResult(q,false);advanceQuiz();}else afterAnswer(q,false,area);};
     g.appendChild(okB);g.appendChild(ngB);grade.appendChild(g);area.appendChild(grade);
   };
   ta.focus();
@@ -1004,6 +1031,20 @@ function showResult(){
     rev.onclick=()=>startQuiz(wrong);row.appendChild(rev);
   }
   card.appendChild(row);m.appendChild(card);
+  if(session.exam){
+    var rev=el("div","card");rev.appendChild(el("h2",null,"📖 解説・見直し"));
+    session.results.forEach(function(r){
+      var it=el("div","genitem");
+      it.appendChild(el("div","small muted",(r.correct?"⭕":"❌")+" "+TYPE[r.q.type]+" ｜ "+r.q.category.join(",")));
+      it.appendChild(el("div",null,escapeHtml(r.q.question)));
+      if(r.q.type==="mc")it.appendChild(el("div","small muted","正解: "+escapeHtml(r.q.choices[r.q.answer])));
+      if(r.q.type==="fill")it.appendChild(el("div","small muted","解答: "+((Array.isArray(r.q.answer[0])?r.q.answer.map(function(a){return "["+a.join("/")+"]";}):r.q.answer).map(escapeHtml).join(" , "))));
+      if(r.q.type==="reason")it.appendChild(el("div","small muted","模範解答: "+escapeHtml((r.q.modelAnswer||"").slice(0,200))));
+      if(r.q.explanation)it.appendChild(el("div","explain",escapeHtml(r.q.explanation)));
+      rev.appendChild(it);
+    });
+    m.appendChild(rev);typeset(rev);
+  }
 }
 
 /* ====================== Claude 解説 ====================== */
@@ -1521,6 +1562,13 @@ function editUserQuestion(id){
 }
 
 /* ====================== 成績＆グラフ ====================== */
+function computeStreak(){
+  var s=0;var d=new Date();
+  function dcnt(dd){return history.filter(function(h){return ymd(h.t)===ymd(dd);}).reduce(function(a,h){return a+h.total;},0);}
+  if(dcnt(d.getTime())===0)d.setDate(d.getDate()-1);
+  while(dcnt(d.getTime())>0){s++;d.setDate(d.getDate()-1);}
+  return s;
+}
 function catStats(){
   const map={};
   questionsActive().forEach(q=>{const p=progress[q.id];if(!p||(p.correct+p.wrong)===0)return;
@@ -1587,8 +1635,17 @@ function renderStats(){
   m.appendChild(lc);
 
   const bc=el("div","card");
-  bc.appendChild(el("h2",null,"📊 カテゴリ別 正答率（苦手な順）"));
-  bc.appendChild(el("div",null,barChartSVG(catStats())));
+  bc.appendChild(el("h2",null,"🗺 カテゴリ別 弱点ヒートマップ（タップで該当カテゴリを出題）"));
+  var cs2=catStats();
+  if(!cs2.length)bc.appendChild(el("p","muted","まだデータがありません。問題を解くと表示されます。"));
+  else{var grid=el("div");grid.style.cssText="display:flex;flex-wrap:wrap;gap:8px";
+    cs2.forEach(function(d){
+      var col=d.pct>=70?"#16623f":d.pct>=40?"#7a5a12":"#7a2230";
+      var cell=el("div");cell.style.cssText="flex:1 1 120px;min-width:108px;border:1px solid var(--line);border-radius:10px;padding:10px;cursor:pointer;background:"+col;
+      cell.innerHTML=`<div style="font-weight:700">${escapeHtml(d.cat)}</div><div style="font-size:20px">${d.pct}%</div><div class="small">${d.correct}/${d.total}問</div>`;
+      cell.onclick=(function(cat){return function(){filter.cats=new Set([cat]);filter.weakOnly=false;filter.unseenOnly=false;filter.keyword="";var pl=poolFromFilter();if(pl.length){startQuiz(pl);}else{setNav("home");renderHome();}};})(d.cat);
+      grid.appendChild(cell);});
+    bc.appendChild(grid);}
   m.appendChild(bc);
 
   const wl=weakList();
