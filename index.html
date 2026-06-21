@@ -138,7 +138,8 @@ const DIFF={1:"易",2:"標準",3:"難"};
 const TYPE={mc:"4択",fill:"穴埋め",reason:"記述(理由)"};
 const LS_PROG="dq_progress_v1", LS_USERQ="dq_userq_v1", LS_SET="dq_settings_v1", LS_HIST="dq_history_v1", LS_HIDDEN="dq_hidden_v1";
 const LS_USAGE="dq_usage_v1";
-const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET,LS_USAGE]);
+const LS_FEEDBACK="dq_feedback_v1";
+const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET,LS_USAGE,LS_FEEDBACK]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -561,6 +562,7 @@ if(typeof settings.simThreshold!=="number")settings.simThreshold=0.45;
 let history=store.get(LS_HIST,[]);
 let hidden=new Set(store.get(LS_HIDDEN,[]));
 let usage=store.get(LS_USAGE,[]);
+let feedback=store.get(LS_FEEDBACK,[]);
 
 function allQuestions(){return SEED.concat(userQ);}
 function saveProgress(){store.set(LS_PROG,progress);}
@@ -599,7 +601,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs,usage:usage};}
+function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs,usage:usage,feedback:feedback};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -640,6 +642,9 @@ function mergeCloud(cloud){
   var uts=new Set((usage||[]).map(function(u){return u.t;}));
   (cloud.usage||[]).forEach(function(u){if(u&&!uts.has(u.t)){usage.push(u);uts.add(u.t);}});
   usage.sort(function(a,b){return a.t-b.t;});if(usage.length>5000)usage=usage.slice(-5000);
+  var fts=new Set((feedback||[]).map(function(x){return x.t;}));
+  (cloud.feedback||[]).forEach(function(x){if(x&&!fts.has(x.t)){feedback.push(x);fts.add(x.t);}});
+  feedback.sort(function(a,b){return a.t-b.t;});if(feedback.length>2000)feedback=feedback.slice(-2000);
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
   // 直接書き込み（store.set経由だと同期ループになるため）
   localStorage.setItem(LS_USERQ,JSON.stringify(userQ));
@@ -647,7 +652,16 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_HIDDEN,JSON.stringify([...hidden]));
   localStorage.setItem(LS_HIST,JSON.stringify(history));
   localStorage.setItem(LS_USAGE,JSON.stringify(usage));
+  localStorage.setItem(LS_FEEDBACK,JSON.stringify(feedback));
   localStorage.setItem(LS_SET,JSON.stringify(settings));
+}
+function appendSyncBar(host){
+  if(!(settings.sync&&settings.sync.token&&settings.sync.gistId))return;
+  var bar=el("div","row");bar.style.cssText="margin-bottom:12px;align-items:center";
+  var b=el("button","btn sec","⟳ 今すぐ同期");
+  var st=el("span","small muted");st.style.marginLeft="8px";st.textContent="他端末の最新を取得します";
+  b.onclick=function(){b.disabled=true;b.textContent="同期中…";cloudPull().then(function(){return cloudPush();}).then(function(){st.textContent="☁ 同期済み "+new Date().toLocaleTimeString();render(_view);}).catch(function(e){b.disabled=false;b.textContent="⟳ 今すぐ同期";st.textContent="⚠ 失敗: "+((e&&e.message)||"").slice(0,40);});};
+  bar.appendChild(b);bar.appendChild(st);host.appendChild(bar);
 }
 function initSync(){
   if(settings.sync&&settings.sync.token&&settings.sync.gistId&&settings.sync.auto){
@@ -807,7 +821,35 @@ function afterAnswer(q,correct,area){
   const aiRow=el("div","row");aiRow.style.marginTop="12px";
   const aiBtn=el("button","btn ghost","🤖 Claudeでさらに詳しく");
   aiBtn.onclick=()=>askClaude(q,exp,aiBtn);
-  aiRow.appendChild(aiBtn);exp.appendChild(aiRow);area.appendChild(exp);
+  aiRow.appendChild(aiBtn);
+  var repBtn=el("button","btn sec","⚠ 問題を報告・修正");
+  aiRow.appendChild(repBtn);exp.appendChild(aiRow);
+  var repBox=el("div");exp.appendChild(repBox);
+  repBtn.onclick=function(){repBtn.disabled=true;repBox.innerHTML="";
+    var ta=el("textarea");ta.placeholder="おかしい点を具体的に（例: 空欄の後に答えが書かれている／選択肢に正解がない 等）";repBox.appendChild(ta);
+    var r2=el("div","row");r2.style.marginTop="8px";
+    var save=el("button","btn","📝 報告を記録");
+    save.onclick=function(){var n=ta.value.trim();if(!n){toast("内容を入力してください");return;}logFeedback(q,n);toast("報告を記録しました（管理タブで確認）");};
+    r2.appendChild(save);
+    if(settings.apiKey){
+      var fix=el("button","btn ghost","🔧 AIで修正案を作成");
+      fix.onclick=async function(){var n=ta.value.trim();logFeedback(q,n||"(指摘なし)");fix.disabled=true;fix.textContent="🔧 作成中…";
+        try{var fixed=await proofreadQuestion(q,n);
+          var pv=el("div","card");pv.style.marginTop="10px";
+          pv.appendChild(el("div",null,"<b>AIによる修正案</b>"));
+          pv.appendChild(el("div",null,escapeHtml(fixed.question)));
+          if(fixed.type==="mc"&&fixed.choices)pv.appendChild(el("div","small muted","選択肢: "+fixed.choices.map(function(c,j){return (j===fixed.answer?"✅":"")+escapeHtml(c);}).join(" / ")));
+          if(fixed.type==="fill"&&fixed.answer)pv.appendChild(el("div","small muted","解答: "+(Array.isArray(fixed.answer[0])?fixed.answer.map(function(a){return "["+a.join("/")+"]";}):fixed.answer).join(" , ")));
+          if(fixed.explanation)pv.appendChild(el("div","small muted","解説: "+escapeHtml(String(fixed.explanation).slice(0,120))));
+          var ab=el("button","btn","✅ この修正で置き換える");
+          ab.onclick=function(){applyFix(q,fixed);toast("修正を反映しました（次回出題から有効）");ab.disabled=true;ab.textContent="反映済み";};
+          pv.appendChild(ab);repBox.appendChild(pv);typeset(pv);
+        }catch(e){alert("修正案の生成に失敗: "+e.message);} fix.disabled=false;fix.textContent="🔧 AIで修正案を作成";};
+      r2.appendChild(fix);
+    }
+    repBox.appendChild(r2);
+  };
+  area.appendChild(exp);
   const nav2=el("div","row");nav2.style.marginTop="14px";
   const next=el("button","btn",session.idx+1<session.qs.length?"次の問題 ▶":"結果を見る ✓");
   next.onclick=()=>{session.idx++;session.idx<session.qs.length?showQuestion():showResult();};
@@ -832,16 +874,24 @@ function renderMC(q,area){
   typeset(area);
 }
 function renderFill(q,area){
-  const inp=el("input");inp.type="text";inp.placeholder="解答を入力";area.appendChild(inp);
+  var multi=Array.isArray(q.answer[0]);
+  var sets=multi?q.answer:[q.answer];
+  var inputs=[];
+  sets.forEach(function(s,idx){
+    if(sets.length>1)area.appendChild(el("label",null,"空欄"+(idx+1)));
+    var inp=el("input");inp.type="text";inp.placeholder="解答を入力";area.appendChild(inp);inputs.push(inp);
+  });
   const row=el("div","row");row.style.marginTop="10px";
   const sub=el("button","btn","解答する");row.appendChild(sub);area.appendChild(row);
-  inp.addEventListener("keydown",e=>{if(e.key==="Enter")sub.click();});inp.focus();
-  sub.onclick=()=>{
-    const ans=norm(inp.value);
-    if(!ans){toast("解答を入力してください");return;}
-    const ok=q.answer.some(a=>norm(a)===ans);
-    inp.disabled=true;sub.disabled=true;
-    area.appendChild(el("div","small muted",`あなたの解答: <b>${escapeHtml(inp.value)}</b> ／ 許容解答例: ${q.answer.map(escapeHtml).join(" , ")}`));
+  inputs[inputs.length-1].addEventListener("keydown",function(e){if(e.key==="Enter")sub.click();});
+  inputs[0].focus();
+  sub.onclick=function(){
+    for(var i=0;i<inputs.length;i++){if(!norm(inputs[i].value)){toast("すべての空欄に解答を入力してください");return;}}
+    var ok=true;
+    for(var j=0;j<inputs.length;j++){var a=norm(inputs[j].value);if(!sets[j].some(function(x){return norm(x)===a;}))ok=false;}
+    inputs.forEach(function(x){x.disabled=true;});sub.disabled=true;
+    var lines=sets.map(function(s,i){return (sets.length>1?("空欄"+(i+1)+": "):"")+"あなた="+escapeHtml(inputs[i].value)+" ／ 許容="+s.map(escapeHtml).join(" , ");}).join("<br>");
+    area.appendChild(el("div","small muted",lines));
     afterAnswer(q,ok,area);
   };
 }
@@ -899,6 +949,27 @@ function showResult(){
 }
 
 /* ====================== Claude 解説 ====================== */
+function logFeedback(q,note){feedback.push({t:Date.now(),qid:q.id,question:q.question,type:q.type,note:note,status:"open"});if(feedback.length>2000)feedback=feedback.slice(-2000);store.set(LS_FEEDBACK,feedback);}
+function buildFixPrompt(q,note){
+  var p="あなたはディスプレイ向け半導体の専門家かつ問題校正者です。次のクイズ問題に問題点があります。指摘を踏まえて修正し、JSON配列(要素1個)のみを出力してください(前後に説明文やコードフェンスを付けない)。\n";
+  p+="スキーマは元の問題と同じ。type/category/difficultyは妥当なら維持する。\n";
+  p+="重要: 穴埋め(fill)は空欄 ___ に入る答え・その言い換え・推測できる語を問題文の他所(特に空欄直後の括弧)に書かない。空欄が複数なら answer を配列の配列にする。4択(mc)は choices を4個・0番目を正解にする。事実誤認や答えの矛盾があれば内容も正す。\n\n";
+  p+="【現在の問題(JSON)】"+JSON.stringify(q)+"\n";
+  p+="【ユーザーの指摘】"+(note||"問題文が不自然・答えが推測できる等")+"\n\n出力はJSON配列(要素1個)のみ。";
+  return p;
+}
+async function proofreadQuestion(q,note){
+  var text=await callClaude(buildFixPrompt(q,note),2048,"proofread");
+  var arr=parseGenerated(text);
+  if(!arr.length)throw new Error("修正案を生成できませんでした");
+  var fixed=arr[0]; fixed.id=q.id; return fixed;
+}
+function applyFix(orig,fixed){
+  var idx=userQ.findIndex(function(u){return u.id===orig.id;});
+  if(idx>=0){ fixed.id=orig.id; userQ[idx]=fixed; }
+  else { fixed.id="u"+Date.now(); userQ.push(fixed); hidden.add(orig.id); saveHidden(); }
+  store.set(LS_USERQ,userQ);
+}
 function buildPrompt(q){
   let p=`あなたはディスプレイ向け半導体プロセス・回路設計の専門家です。以下の問題について、初学者にも分かるように背景の原理から丁寧に、かつ簡潔に解説してください。必要なら式や具体例も使ってください。\n\n`;
   p+=`【カテゴリ】${q.category.join(", ")}\n【難易度】${DIFF[q.difficulty]}\n【形式】${TYPE[q.type]}\n【問題】${q.question}\n`;
@@ -960,7 +1031,7 @@ function genPrompt(opts){
   p+=`\n各要素のJSONスキーマ（キー名は厳守）:\n`;
   p+=`共通: "type"(mc|fill|reason), "difficulty"(1|2|3 の整数), "category"(文字列の配列), "question"(問題文), "explanation"(解説)\n`;
   p+=`type="mc" の場合: さらに "choices"(必ず4要素の文字列配列。0番目を正解にすること), "answer":0\n`;
-  p+=`type="fill" の場合: question 内の空欄を ___（半角アンダースコア3つ以上）で表し, "answer" は許容解答の文字列配列\n`;
+  p+=`type="fill" の場合: question 内の空欄を ___（半角アンダースコア3つ）で表す。【厳守】空欄に入る答え・その言い換え・正解が容易に推測できる語句を、問題文の他の場所（特に空欄直後の括弧内）に書かないこと。空欄は原則1個にする。"answer" は許容解答の文字列配列。複数の空欄が必要な場合のみ "answer" を「配列の配列」にし、各空欄の出現順に許容解答の配列を入れる\n`;
   p+=`type="reason" の場合: "modelAnswer"(模範解答), "keyPoints"(採点ポイントの文字列配列)\n`;
   p+=`\n要件: 日本語。技術的に正確であること。最新技術・課題・技術動向（高移動度酸化物, CAAC, DRAM/BEOL応用, ミニLED, 量子ドット, LTPO, microLED, フォルダブル, EUV/ALD等）も適宜含める。既出になりがちな内容の単純重複は避ける。出力はJSON配列のみ。\n`;
   if(opts.avoid&&opts.avoid.length){p+="\n【重複禁止】以下は既に存在する問題です。これらと論点・答え・趣旨が重複する問題（言い換えただけの類題を含む）は絶対に作らないでください。必ず別の観点・別の知識を問うこと:\n"+opts.avoid.map(function(a,i){return (i+1)+". "+String(a).slice(0,70);}).join("\n")+"\n";}
@@ -999,7 +1070,8 @@ function parseGenerated(text){
       q.answer=Number.isInteger(o.answer)&&o.answer>=0&&o.answer<q.choices.length?o.answer:0;
     }else if(t==="fill"){
       let ans=o.answer;if(typeof ans==="string")ans=[ans];if(!Array.isArray(ans)||!ans.length)return;
-      q.answer=ans.map(String);
+      if(Array.isArray(ans[0]))q.answer=ans.map(function(a){return (Array.isArray(a)?a:[a]).map(String);});
+      else q.answer=ans.map(String);
       if(!/_{2,}/.test(q.question))q.question=q.question.replace(/[（(][^）)]*[）)]\s*$/,"")+" ___ ";
     }else{
       if(typeof o.modelAnswer!=="string"||!o.modelAnswer.trim())return;
@@ -1147,7 +1219,7 @@ function renderGen(){
       body.innerHTML=`<div class="small muted">${diffPill(q.difficulty)} <span class="pill">${TYPE[q.type]}</span> ${q.category.map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join("")}</div>
         <div style="margin:4px 0">${escapeHtml(q.question)}</div>`;
       if(q.type==="mc")body.innerHTML+=`<div class="small muted">選択肢: ${q.choices.map((c,j)=>(j===q.answer?"✅":"")+escapeHtml(c)).join(" / ")}</div>`;
-      if(q.type==="fill")body.innerHTML+=`<div class="small muted">解答: ${q.answer.map(escapeHtml).join(" , ")}</div>`;
+      if(q.type==="fill")body.innerHTML+=`<div class="small muted">解答: ${(Array.isArray(q.answer[0])?q.answer.map(function(a){return "["+a.join("/")+"]";}):q.answer).map(escapeHtml).join(" , ")}</div>`;
       if(q.type==="reason")body.innerHTML+=`<div class="small muted">模範: ${escapeHtml(q.modelAnswer.slice(0,80))}…</div>`;
       head.appendChild(cb);head.appendChild(body);item.appendChild(head);c.appendChild(item);
     });
@@ -1209,9 +1281,9 @@ function questionFormCard(existing,onSave,saveLabel){
     if(t==="mc"){dyn.innerHTML=`<label>選択肢（1行に1つ。1行目を正解にしてください）</label>
       <textarea id="a_choices" placeholder="正解の選択肢（1行目）&#10;誤答1&#10;誤答2&#10;誤答3"></textarea>`;
       if(e.type==="mc"&&e.choices)q("#a_choices").value=[e.choices[e.answer]].concat(e.choices.filter((_,i)=>i!==e.answer)).join("\n");}
-    else if(t==="fill"){dyn.innerHTML=`<label>許容解答（カンマ区切り。大小/全半角/空白は無視して判定）</label>
-      <input id="a_ans" type="text" placeholder="エキシマレーザアニール, ELA">`;
-      if(e.type==="fill"&&e.answer)q("#a_ans").value=e.answer.join(", ");}
+    else if(t==="fill"){dyn.innerHTML=`<label>許容解答（カンマ区切り。空欄が複数ある場合は1行に1空欄ずつ）</label>
+      <textarea id="a_ans" placeholder="エキシマレーザアニール, ELA"></textarea>`;
+      if(e.type==="fill"&&e.answer){q("#a_ans").value=Array.isArray(e.answer[0])?e.answer.map(function(a){return a.join(", ");}).join("\n"):e.answer.join(", ");}}
     else{dyn.innerHTML=`<label>模範解答</label><textarea id="a_model" placeholder="模範解答（理由）"></textarea>
       <label>採点ポイント（カンマ区切り・任意）</label><input id="a_kp" type="text" placeholder="要点1, 要点2">`;
       if(e.type==="reason"){q("#a_model").value=e.modelAnswer||"";q("#a_kp").value=(e.keyPoints||[]).join(", ");}}
@@ -1231,10 +1303,11 @@ function questionFormCard(existing,onSave,saveLabel){
       if(lines.length<2){toast("選択肢を2つ以上（正解+誤答）入力してください");return;}
       obj.choices=lines;obj.answer=0;
     }else if(t==="fill"){
-      const ans=q("#a_ans").value.split(",").map(s=>s.trim()).filter(Boolean);
-      if(!ans.length){toast("許容解答を入力してください");return;}
+      var lines=q("#a_ans").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
+      if(!lines.length){toast("許容解答を入力してください");return;}
       if(!/_{2,}/.test(qt)){toast("穴埋めは問題文に ___ を入れてください");return;}
-      obj.answer=ans;
+      if(lines.length>1)obj.answer=lines.map(function(l){return l.split(",").map(function(s){return s.trim();}).filter(Boolean);});
+      else obj.answer=lines[0].split(",").map(function(s){return s.trim();}).filter(Boolean);
     }else{
       const mdl=q("#a_model").value.trim();
       if(!mdl){toast("模範解答を入力してください");return;}
@@ -1300,6 +1373,18 @@ function renderManage(){
     });
     typeset(listHost);
   }
+  if(feedback.length){
+    var fc=el("div","card");
+    fc.appendChild(el("h2",null,"⚠ 報告された問題（"+feedback.length+"件）"));
+    var ft=el("table");ft.innerHTML="<tr><th>日時</th><th>問題</th><th>指摘</th><th></th></tr>";
+    feedback.slice().reverse().slice(0,50).forEach(function(fb){
+      var tr=el("tr",null,"<td>"+new Date(fb.t).toLocaleDateString()+"</td><td>"+escapeHtml((fb.question||"").slice(0,38))+"…</td><td>"+escapeHtml((fb.note||"").slice(0,60))+"</td>");
+      var tcell=el("td");var rmBtn=el("button","btn sec","削除");rmBtn.style.padding="4px 10px";
+      rmBtn.onclick=function(){feedback=feedback.filter(function(x){return x.t!==fb.t;});store.set(LS_FEEDBACK,feedback);renderManage();};
+      tcell.appendChild(rmBtn);tr.appendChild(tcell);ft.appendChild(tr);
+    });
+    fc.appendChild(ft);m.appendChild(fc);
+  }
   search.addEventListener("input",draw);draw();
 }
 function editUserQuestion(id){
@@ -1357,6 +1442,7 @@ function barChartSVG(data){
 }
 function renderStats(){
   const m=$("#main");m.innerHTML="";
+  appendSyncBar(m);
   const qs=questionsActive();
   let seen=0,wrong=0,correct=0;
   qs.forEach(q=>{const p=progress[q.id];if(p){seen+=p.seen;wrong+=p.wrong;correct+=p.correct;}});
@@ -1450,6 +1536,7 @@ function confirmGenCost(model,inTok,outTyp,maxOut,jpy){
 }
 function renderCost(){
   var m=$("#main");m.innerHTML="";
+  appendSyncBar(m);
   var jpy=settings.jpyRate||155, now=Date.now();
   var today=ymd(now), tm=ym(now), tyr=yy(now);
   var cToday=0,cMonth=0,cYear=0,cAll=0,nAll=0,inAll=0,outAll=0;
@@ -1480,7 +1567,7 @@ function renderCost(){
     yc.appendChild(yt);}
   m.appendChild(yc);
   var rc=el("div","card");rc.appendChild(el("h2",null,"最近の呼び出し（最新30件）"));
-  var PL={gen:"問題生成",explain:"解説",other:"その他"};
+  var PL={gen:"問題生成",explain:"解説",proofread:"校正",other:"その他"};
   if(!usage.length)rc.appendChild(el("p","muted","まだAPI呼び出しはありません。AI生成や解説を使うと記録されます。"));
   else{var rt=el("table");rt.innerHTML="<tr><th>日時</th><th>用途</th><th>モデル</th><th>入力</th><th>出力</th><th>コスト</th></tr>";
     usage.slice(-30).reverse().forEach(function(u){var dt=new Date(u.t);var ds=(dt.getMonth()+1)+"/"+dt.getDate()+" "+String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0");
@@ -1567,6 +1654,7 @@ function renderSettings(){
     </div>
     <p class="small muted" id="sy_note"></p>`;
   m.appendChild(syncCard);
+  if(location.protocol==="file:"){var fw=el("p","small muted");fw.style.color="var(--warn)";fw.textContent="⚠ ローカルファイル(file://)ではクラウド同期が動作しないことがあります。PCでも公開URL(GitHub Pages)版を開いて同期するのを推奨します。";syncCard.appendChild(fw);}
   const yq=syncCard.querySelector.bind(syncCard);
   yq("#sy_tok").value=settings.sync.token||"";
   yq("#sy_gid").value=settings.sync.gistId||"";
