@@ -579,7 +579,7 @@ let notesByU=store.get(LS_NOTESBYU,{});
 (function(){
   if(!users.length){
     var uid0="u"+Date.now();
-    users=[{id:uid0,name:"ユーザー1",pin:"",leader:true}];
+    users=[{id:uid0,name:"ユーザー1",pin:"",leader:true,auto:true}];
     store.set(LS_USERS,users);
     var oP=store.get(LS_PROG,null),oH=store.get(LS_HIST,null),oC=store.get(LS_COLL,null),oN=store.get(LS_NOTES,null);
     if(oP)progByU[uid0]=oP; if(oH)histByU[uid0]=oH; if(oC)collByU[uid0]=oC; if(oN)notesByU[uid0]=oN;
@@ -738,13 +738,15 @@ function appendSyncBar(host){
   var bar=el("div","row");bar.style.cssText="margin-bottom:12px;align-items:center";
   var b=el("button","btn sec","⟳ 今すぐ同期");
   var st=el("span","small muted");st.style.marginLeft="8px";st.textContent="他端末の最新を取得します";
-  b.onclick=function(){b.disabled=true;b.textContent="同期中…";cloudPull().then(function(){return cloudPush();}).then(function(){st.textContent="☁ 同期済み "+new Date().toLocaleTimeString();render(_view);}).catch(function(e){b.disabled=false;b.textContent="⟳ 今すぐ同期";st.textContent="⚠ 失敗: "+((e&&e.message)||"").slice(0,40);});};
+  b.onclick=function(){b.disabled=true;b.textContent="同期中…";cloudPull().then(function(){reconcileAutoUser();return cloudPush();}).then(function(){st.textContent="☁ 同期済み "+new Date().toLocaleTimeString();render(_view);}).catch(function(e){b.disabled=false;b.textContent="⟳ 今すぐ同期";st.textContent="⚠ 失敗: "+((e&&e.message)||"").slice(0,40);});};
   bar.appendChild(b);bar.appendChild(st);host.appendChild(bar);
 }
+function userHasData(uid){var p=progByU[uid]||{};for(var k in p){if(p[k]&&p[k].seen>0)return true;}if((histByU[uid]||[]).length)return true;if((collByU[uid]||[]).length)return true;if(Object.keys(notesByU[uid]||{}).length)return true;return false;}
+function reconcileAutoUser(){var cu=currentUserObj();if(cu&&cu.auto&&users.length>1&&!userHasData(currentUser)){var rid=currentUser;users=users.filter(function(u){return u.id!==rid;});delete progByU[rid];delete histByU[rid];delete collByU[rid];delete notesByU[rid];saveUsers();store.set(LS_PROGBYU,progByU);store.set(LS_HISTBYU,histByU);store.set(LS_COLLBYU,collByU);store.set(LS_NOTESBYU,notesByU);currentUser=users[0].id;localStorage.setItem(LS_CURUSER,currentUser);progress=progByU[currentUser]||(progByU[currentUser]={});history=histByU[currentUser]||(histByU[currentUser]=[]);collections=collByU[currentUser]||(collByU[currentUser]=[]);notes=notesByU[currentUser]||(notesByU[currentUser]={});setTimeout(function(){toast("チームのユーザー一覧を取得しました。ヘッダーの👤からあなたを選択してください");if(typeof openUserSwitcher==="function")openUserSwitcher();},400);}}
 function initSync(){
   if(settings.sync&&settings.sync.token&&settings.sync.gistId&&settings.sync.auto){
     setSyncStatus("⟳ 同期中…");
-    cloudPull().then(()=>cloudPush()).then(()=>{setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render(_view);})
+    cloudPull().then(()=>{reconcileAutoUser();return cloudPush();}).then(()=>{setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render(_view);setUserBadge();})
       .catch(()=>setSyncStatus("⚠ 同期失敗"));
   }
 }
@@ -1968,10 +1970,10 @@ function renderSettings(){
   function readSyncFields(){settings.sync.token=yq("#sy_tok").value.trim();settings.sync.gistId=yq("#sy_gid").value.trim();settings.sync.auto=yq("#sy_auto").checked;localStorage.setItem(LS_SET,JSON.stringify(settings));}
   yq("#sy_conn").onclick=async()=>{readSyncFields();if(!settings.sync.token){toast("トークンを入力してください");return;}
     const b=yq("#sy_conn");b.disabled=true;b.textContent="接続中…";
-    try{if(!settings.sync.gistId){var fg=await findGist();if(fg){settings.sync.gistId=fg;localStorage.setItem(LS_SET,JSON.stringify(settings));}}await cloudPull();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}
+    try{if(!settings.sync.gistId){var fg=await findGist();if(fg){settings.sync.gistId=fg;localStorage.setItem(LS_SET,JSON.stringify(settings));}}await cloudPull();reconcileAutoUser();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}
     catch(e){alert("同期失敗: "+e.message);b.disabled=false;b.textContent="接続して同期";}};
   yq("#sy_now").onclick=async()=>{readSyncFields();if(!settings.sync.token){toast("先にトークンを設定してください");return;}
-    try{await cloudPull();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}catch(e){alert("同期失敗: "+e.message);}};
+    try{await cloudPull();reconcileAutoUser();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}catch(e){alert("同期失敗: "+e.message);}};
   yq("#sy_off").onclick=()=>{settings.sync={token:"",gistId:settings.sync.gistId,auto:false};localStorage.setItem(LS_SET,JSON.stringify(settings));setSyncStatus("");render("settings");toast("接続解除しました（Gist IDは保持）");};
 
   var uc=el("div","card");
