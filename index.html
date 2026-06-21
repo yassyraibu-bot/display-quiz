@@ -592,6 +592,21 @@ let history=histByU[currentUser]||(histByU[currentUser]=[]);
 let collections=collByU[currentUser]||(collByU[currentUser]=[]);
 let notes=notesByU[currentUser]||(notesByU[currentUser]={});
 
+function sanitizeQ(q){
+  if(!q||typeof q!=="object"||typeof q.question!=="string"||!q.question.trim())return null;
+  if(!q.id)q.id="u"+Date.now()+Math.random().toString(36).slice(2,6);
+  if(typeof q.category==="string")q.category=[q.category];
+  if(!Array.isArray(q.category)||!q.category.length)q.category=["未分類"];
+  q.category=q.category.map(String);
+  if(![1,2,3].includes(q.difficulty))q.difficulty=2;
+  if(q.type==="mc"){if(!Array.isArray(q.choices)||q.choices.length<2)return null;q.choices=q.choices.map(String);if(typeof q.answer!=="number"||q.answer<0||q.answer>=q.choices.length)q.answer=0;}
+  else if(q.type==="fill"){var a=q.answer;if(typeof a==="string")a=[a];if(!Array.isArray(a)||!a.length)return null;q.answer=a;if(!/_{2,}/.test(q.question))q.question=q.question+" ___ ";}
+  else if(q.type==="reason"){if(typeof q.modelAnswer!=="string")q.modelAnswer=q.modelAnswer?String(q.modelAnswer):"（模範解答未登録）";if(!Array.isArray(q.keyPoints))q.keyPoints=[];}
+  else return null;
+  if(typeof q.explanation!=="string")q.explanation=q.explanation?String(q.explanation):"";
+  return q;
+}
+function sanitizeQuestions(list){var out=[];(list||[]).forEach(function(q){var s=sanitizeQ(q);if(s)out.push(s);});return out;}
 function allQuestions(){return SEED.concat(userQ);}
 function saveProgress(){progByU[currentUser]=progress;store.set(LS_PROGBYU,progByU);}
 function saveHistory(){histByU[currentUser]=history;store.set(LS_HISTBYU,histByU);}
@@ -674,6 +689,7 @@ function mergeCloud(cloud){
   var qmap={};(userQ||[]).forEach(function(q){qmap[q.id]=q;});
   (cloud.userQ||[]).forEach(function(q){if(q&&q.id&&!qmap[q.id])qmap[q.id]=q;});
   userQ=Object.values(qmap);
+  userQ=sanitizeQuestions(userQ);
   (cloud.hidden||[]).forEach(function(id){hidden.add(id);});
   function unionT(arr,carr,cap){var s=new Set((arr||[]).map(function(x){return x.t;}));(carr||[]).forEach(function(x){if(x&&!s.has(x.t)){arr.push(x);s.add(x.t);}});arr.sort(function(a,b){return a.t-b.t;});if(cap&&arr.length>cap)arr=arr.slice(-cap);return arr;}
   usage=unionT(usage,cloud.usage,5000);
@@ -740,7 +756,7 @@ function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.rando
 function norm(s){return (s||"").toString().trim().toLowerCase()
   .replace(/[　\s]+/g,"")
   .replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));}
-function uniqueCategories(){const set=new Set();allQuestions().forEach(q=>q.category.forEach(c=>set.add(c)));return[...set].sort();}
+function uniqueCategories(){const set=new Set();allQuestions().forEach(q=>(q.category||[]).forEach(c=>set.add(c)));return[...set].sort();}
 let toastTimer;
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2000);}
 function diffPill(d){return `<span class="pill d${d}">難易度 ${DIFF[d]}</span>`;}
@@ -1950,6 +1966,7 @@ function renderSettings(){
   m.appendChild(info);
 }
 
+userQ=sanitizeQuestions(userQ);store.set(LS_USERQ,userQ);
 renderHome();
 setUserBadge();
 initSync();
