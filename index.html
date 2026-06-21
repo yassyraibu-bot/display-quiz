@@ -117,6 +117,7 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
     <h1>📺 ディスプレイ半導体 問題集</h1>
     <div class="sub">LCD / IGZO ・ プロセスと回路設計</div>
     <div class="sub" id="syncStatus" style="color:var(--accent)"></div>
+    <div class="sub" id="userBadge" style="cursor:pointer"></div>
   </div>
   <nav id="nav">
     <button data-view="home" class="active">出題</button>
@@ -141,7 +142,10 @@ const LS_USAGE="dq_usage_v1";
 const LS_FEEDBACK="dq_feedback_v1";
 const LS_COLL="dq_collections_v1";
 const LS_NOTES="dq_notes_v1";
-const SYNC_KEYS=new Set([LS_PROG,LS_USERQ,LS_HIDDEN,LS_HIST,LS_SET,LS_USAGE,LS_FEEDBACK,LS_COLL,LS_NOTES]);
+const LS_USERS="dq_users_v1", LS_CURUSER="dq_curuser_v1";
+const LS_PROGBYU="dq_progbyu_v1", LS_HISTBYU="dq_histbyu_v1", LS_COLLBYU="dq_collbyu_v1", LS_NOTESBYU="dq_notesbyu_v1";
+const LS_SELECTION="dq_selection_v1", LS_QFB="dq_qfeedback_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -554,7 +558,6 @@ const store={
   get(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def}catch(e){return def}},
   set(k,v){localStorage.setItem(k,JSON.stringify(v)); if(SYNC_KEYS.has(k))scheduleSync();}
 };
-let progress=store.get(LS_PROG,{});
 let userQ=store.get(LS_USERQ,[]);
 let settings=Object.assign({apiKey:"",model:"claude-haiku-4-5-20251001"},store.get(LS_SET,{}));
 if(!settings.srs||typeof settings.srs!=="object")settings.srs={step1:1,step2:3,lapseMin:10,ease:2.5};
@@ -562,15 +565,42 @@ if(!settings.sync||typeof settings.sync!=="object")settings.sync={token:"",gistI
 if(typeof settings.jpyRate!=="number")settings.jpyRate=155;
 if(typeof settings.simThreshold!=="number")settings.simThreshold=0.45;
 if(typeof settings.dailyGoal!=="number")settings.dailyGoal=10;
-let history=store.get(LS_HIST,[]);
 let hidden=new Set(store.get(LS_HIDDEN,[]));
 let usage=store.get(LS_USAGE,[]);
 let feedback=store.get(LS_FEEDBACK,[]);
-let collections=store.get(LS_COLL,[]);
-let notes=store.get(LS_NOTES,{});
+let selection=store.get(LS_SELECTION,[]);
+let qfeedback=store.get(LS_QFB,[]);
+let users=store.get(LS_USERS,[]);
+let currentUser=localStorage.getItem(LS_CURUSER)||"";
+let progByU=store.get(LS_PROGBYU,{});
+let histByU=store.get(LS_HISTBYU,{});
+let collByU=store.get(LS_COLLBYU,{});
+let notesByU=store.get(LS_NOTESBYU,{});
+(function(){
+  if(!users.length){
+    var uid0="u"+Date.now();
+    users=[{id:uid0,name:"ユーザー1",pin:"",leader:true}];
+    store.set(LS_USERS,users);
+    var oP=store.get(LS_PROG,null),oH=store.get(LS_HIST,null),oC=store.get(LS_COLL,null),oN=store.get(LS_NOTES,null);
+    if(oP)progByU[uid0]=oP; if(oH)histByU[uid0]=oH; if(oC)collByU[uid0]=oC; if(oN)notesByU[uid0]=oN;
+    currentUser=uid0;localStorage.setItem(LS_CURUSER,uid0);
+  }
+  if(!currentUser||!users.some(function(u){return u.id===currentUser;}))currentUser=users[0].id;
+})();
+let progress=progByU[currentUser]||(progByU[currentUser]={});
+let history=histByU[currentUser]||(histByU[currentUser]=[]);
+let collections=collByU[currentUser]||(collByU[currentUser]=[]);
+let notes=notesByU[currentUser]||(notesByU[currentUser]={});
 
 function allQuestions(){return SEED.concat(userQ);}
-function saveProgress(){store.set(LS_PROG,progress);}
+function saveProgress(){progByU[currentUser]=progress;store.set(LS_PROGBYU,progByU);}
+function saveHistory(){histByU[currentUser]=history;store.set(LS_HISTBYU,histByU);}
+function saveUsers(){store.set(LS_USERS,users);}
+function saveSelection(){store.set(LS_SELECTION,selection);}
+function saveQFB(){store.set(LS_QFB,qfeedback);}
+function currentUserObj(){return users.filter(function(u){return u.id===currentUser;})[0]||{name:"?",leader:false};}
+function isLeader(){return !!currentUserObj().leader;}
+function switchUser(uid){saveProgress();saveHistory();saveCollections();saveNotes();currentUser=uid;localStorage.setItem(LS_CURUSER,uid);progress=progByU[uid]||(progByU[uid]={});history=histByU[uid]||(histByU[uid]=[]);collections=collByU[uid]||(collByU[uid]=[]);notes=notesByU[uid]||(notesByU[uid]={});render(_view||"home");}
 function getProg(id){return progress[id]||(progress[id]={wrong:0,correct:0,seen:0,lastResult:null});}
 function questionsActive(){return allQuestions().filter(q=>!hidden.has(q.id));}
 function saveHidden(){store.set(LS_HIDDEN,[...hidden]);}
@@ -606,7 +636,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){return {_v:1,_ts:Date.now(),userQ:userQ,progress:progress,hidden:[...hidden],history:history,srs:settings.srs,usage:usage,feedback:feedback,collections:collections,notes:notes};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -641,36 +671,52 @@ async function cloudPull(){
 }
 function mergeCloud(cloud){
   if(!cloud||typeof cloud!=="object")return;
-  const map={};(userQ||[]).forEach(q=>map[q.id]=q);
-  (cloud.userQ||[]).forEach(q=>{if(q&&q.id&&!map[q.id])map[q.id]=q;});
-  userQ=Object.values(map);
-  const cp=cloud.progress||{};
-  Object.keys(cp).forEach(id=>{const a=progress[id],b=cp[id];if(!a||(((b&&b.seen)||0)>((a&&a.seen)||0)))progress[id]=b;});
-  (cloud.hidden||[]).forEach(id=>hidden.add(id));
-  const ts=new Set((history||[]).map(h=>h.t));
-  (cloud.history||[]).forEach(h=>{if(h&&!ts.has(h.t)){history.push(h);ts.add(h.t);}});
-  history.sort((a,b)=>a.t-b.t);if(history.length>300)history=history.slice(-300);
-  var uts=new Set((usage||[]).map(function(u){return u.t;}));
-  (cloud.usage||[]).forEach(function(u){if(u&&!uts.has(u.t)){usage.push(u);uts.add(u.t);}});
-  usage.sort(function(a,b){return a.t-b.t;});if(usage.length>5000)usage=usage.slice(-5000);
-  var fts=new Set((feedback||[]).map(function(x){return x.t;}));
-  (cloud.feedback||[]).forEach(function(x){if(x&&!fts.has(x.t)){feedback.push(x);fts.add(x.t);}});
-  feedback.sort(function(a,b){return a.t-b.t;});if(feedback.length>2000)feedback=feedback.slice(-2000);
-  var cmap={};(collections||[]).forEach(function(c){cmap[c.id]=c;});
-  (cloud.collections||[]).forEach(function(c){if(!c||!c.id)return;if(!cmap[c.id]){collections.push(c);cmap[c.id]=c;}else{var exc=cmap[c.id];var cset=new Set(exc.qids);(c.qids||[]).forEach(function(x){if(!cset.has(x)){exc.qids.push(x);cset.add(x);}});}});
-  var cnotes=cloud.notes||{};Object.keys(cnotes).forEach(function(k){if(!notes[k])notes[k]=cnotes[k];});
+  var qmap={};(userQ||[]).forEach(function(q){qmap[q.id]=q;});
+  (cloud.userQ||[]).forEach(function(q){if(q&&q.id&&!qmap[q.id])qmap[q.id]=q;});
+  userQ=Object.values(qmap);
+  (cloud.hidden||[]).forEach(function(id){hidden.add(id);});
+  function unionT(arr,carr,cap){var s=new Set((arr||[]).map(function(x){return x.t;}));(carr||[]).forEach(function(x){if(x&&!s.has(x.t)){arr.push(x);s.add(x.t);}});arr.sort(function(a,b){return a.t-b.t;});if(cap&&arr.length>cap)arr=arr.slice(-cap);return arr;}
+  usage=unionT(usage,cloud.usage,5000);
+  feedback=unionT(feedback,cloud.feedback,2000);
+  qfeedback=unionT(qfeedback,cloud.qfeedback,4000);
+  var umap={};(users||[]).forEach(function(u){umap[u.id]=u;});
+  (cloud.users||[]).forEach(function(u){if(u&&u.id&&!umap[u.id]){users.push(u);umap[u.id]=u;}});
+  var ssel=new Set(selection||[]);(cloud.selection||[]).forEach(function(id){ssel.add(id);});selection=[...ssel];
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
-  // 直接書き込み（store.set経由だと同期ループになるため）
+  function mProg(lp,cpp){lp=lp||{};Object.keys(cpp||{}).forEach(function(id){var a=lp[id],b=cpp[id];if(!a||(((b&&b.seen)||0)>((a&&a.seen)||0)))lp[id]=b;});return lp;}
+  function mHist(lh,ch){lh=lh||[];var s=new Set(lh.map(function(h){return h.t;}));(ch||[]).forEach(function(h){if(h&&!s.has(h.t)){lh.push(h);s.add(h.t);}});lh.sort(function(a,b){return a.t-b.t;});if(lh.length>300)lh=lh.slice(-300);return lh;}
+  function mColl(lc,cc){lc=lc||[];var m={};lc.forEach(function(c){m[c.id]=c;});(cc||[]).forEach(function(c){if(!c||!c.id)return;if(!m[c.id]){lc.push(c);m[c.id]=c;}else{var ex=m[c.id];var cs=new Set(ex.qids);(c.qids||[]).forEach(function(x){if(!cs.has(x)){ex.qids.push(x);cs.add(x);}});}});return lc;}
+  function mNotes(ln,cn){ln=ln||{};Object.keys(cn||{}).forEach(function(k){if(!ln[k])ln[k]=cn[k];});return ln;}
+  var cProg=cloud.progByU||{},cHist=cloud.histByU||{},cColl=cloud.collByU||{},cNotes=cloud.notesByU||{};
+  if(cloud.progress&&!cloud.progByU)cProg[currentUser]=cloud.progress;
+  if(cloud.history&&!cloud.histByU)cHist[currentUser]=cloud.history;
+  if(cloud.collections&&!cloud.collByU)cColl[currentUser]=cloud.collections;
+  if(cloud.notes&&!cloud.notesByU)cNotes[currentUser]=cloud.notes;
+  Object.keys(cProg).forEach(function(uid){progByU[uid]=mProg(progByU[uid],cProg[uid]);});
+  Object.keys(cHist).forEach(function(uid){histByU[uid]=mHist(histByU[uid],cHist[uid]);});
+  Object.keys(cColl).forEach(function(uid){collByU[uid]=mColl(collByU[uid],cColl[uid]);});
+  Object.keys(cNotes).forEach(function(uid){notesByU[uid]=mNotes(notesByU[uid],cNotes[uid]);});
+  progress=progByU[currentUser]||(progByU[currentUser]={});
+  history=histByU[currentUser]||(histByU[currentUser]=[]);
+  collections=collByU[currentUser]||(collByU[currentUser]=[]);
+  notes=notesByU[currentUser]||(notesByU[currentUser]={});
   localStorage.setItem(LS_USERQ,JSON.stringify(userQ));
-  localStorage.setItem(LS_PROG,JSON.stringify(progress));
   localStorage.setItem(LS_HIDDEN,JSON.stringify([...hidden]));
-  localStorage.setItem(LS_HIST,JSON.stringify(history));
   localStorage.setItem(LS_USAGE,JSON.stringify(usage));
   localStorage.setItem(LS_FEEDBACK,JSON.stringify(feedback));
-  localStorage.setItem(LS_COLL,JSON.stringify(collections));
-  localStorage.setItem(LS_NOTES,JSON.stringify(notes));
+  localStorage.setItem(LS_QFB,JSON.stringify(qfeedback));
+  localStorage.setItem(LS_USERS,JSON.stringify(users));
+  localStorage.setItem(LS_SELECTION,JSON.stringify(selection));
   localStorage.setItem(LS_SET,JSON.stringify(settings));
+  localStorage.setItem(LS_PROGBYU,JSON.stringify(progByU));
+  localStorage.setItem(LS_HISTBYU,JSON.stringify(histByU));
+  localStorage.setItem(LS_COLLBYU,JSON.stringify(collByU));
+  localStorage.setItem(LS_NOTESBYU,JSON.stringify(notesByU));
 }
+function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
+function setUserBadge(){var e=$("#userBadge");if(e){e.textContent="👤 "+currentUserObj().name+" ▼";e.onclick=openUserSwitcher;}}
+function openUserSwitcher(){var c=el("div");c.appendChild(el("h2",null,"ユーザー切替"));var ov;users.forEach(function(u){var b=el("button","btn sec",(u.id===currentUser?"● ":"")+u.name+(u.leader?"（リーダー）":"")+(u.pin?" 🔒":""));b.style.cssText="display:block;width:100%;text-align:left;margin:4px 0";b.onclick=function(){if(u.id===currentUser){ov.remove();return;}if(u.pin){var p=prompt(u.name+" のPINを入力");if(p!==u.pin){toast("PINが違います");return;}}ov.remove();switchUser(u.id);setUserBadge();};c.appendChild(b);});ov=showModal(c);}
+function editUser(u,cb){var c=el("div");c.appendChild(el("h2",null,"ユーザー編集"));c.appendChild(el("label",null,"名前"));var ni=el("input");ni.type="text";ni.value=u.name;c.appendChild(ni);c.appendChild(el("label",null,"PIN（任意・空で無し）"));var pi=el("input");pi.type="text";pi.value=u.pin||"";c.appendChild(pi);var ll=el("label","row");ll.style.cssText="align-items:center;gap:8px;color:var(--txt)";var lc=el("input");lc.type="checkbox";lc.style.width="auto";lc.checked=!!u.leader;ll.appendChild(lc);ll.appendChild(document.createTextNode("リーダー（セレクション編集が可能）"));c.appendChild(ll);var rr=el("div","row");rr.style.marginTop="10px";var sv=el("button","btn","保存");var ov;sv.onclick=function(){var nm=ni.value.trim();if(!nm){toast("名前は必須です");return;}u.name=nm;u.pin=pi.value.trim();u.leader=lc.checked;saveUsers();if(ov)ov.remove();setUserBadge();if(cb)cb();};rr.appendChild(sv);c.appendChild(rr);ov=showModal(c);}
 function appendSyncBar(host){
   if(!(settings.sync&&settings.sync.token&&settings.sync.gistId))return;
   var bar=el("div","row");bar.style.cssText="margin-bottom:12px;align-items:center";
@@ -1009,7 +1055,7 @@ function renderReason(q,area){
 function showResult(){
   history.push({t:Date.now(),total:session.qs.length,correct:session.correct});
   if(history.length>300)history=history.slice(-300);
-  store.set(LS_HIST,history);
+  saveHistory();
   const m=$("#main");m.innerHTML="";
   const card=el("div","card");
   const pct=Math.round(session.correct/session.qs.length*100);
@@ -1048,8 +1094,8 @@ function showResult(){
 }
 
 /* ====================== Claude 解説 ====================== */
-function saveCollections(){store.set(LS_COLL,collections);}
-function saveNotes(){store.set(LS_NOTES,notes);}
+function saveCollections(){collByU[currentUser]=collections;store.set(LS_COLLBYU,collByU);}
+function saveNotes(){notesByU[currentUser]=notes;store.set(LS_NOTESBYU,notesByU);}
 function collectionsHaving(id){return collections.filter(function(c){return c.qids.indexOf(id)>=0;});}
 function renderFavPanel(q,host,btn){
   host.innerHTML="";
@@ -1663,7 +1709,7 @@ function renderStats(){
 
   const reset=el("button","btn sec","成績・履歴をリセット");
   reset.onclick=()=>{if(confirm("成績記録と履歴グラフをすべて消去しますか？（問題は消えません）")){
-    progress={};history=[];saveProgress();store.set(LS_HIST,history);toast("リセットしました");renderStats();}};
+    progress={};history=[];saveProgress();saveHistory();toast("リセットしました");renderStats();}};
   m.appendChild(reset);
 }
 
@@ -1857,6 +1903,33 @@ function renderSettings(){
     try{await cloudPull();await cloudPush();toast("同期しました");setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString());render("settings");}catch(e){alert("同期失敗: "+e.message);}};
   yq("#sy_off").onclick=()=>{settings.sync={token:"",gistId:settings.sync.gistId,auto:false};localStorage.setItem(LS_SET,JSON.stringify(settings));setSyncStatus("");render("settings");toast("接続解除しました（Gist IDは保持）");};
 
+  var uc=el("div","card");
+  uc.appendChild(el("h2",null,"👥 ユーザー管理（最大10人）"));
+  uc.appendChild(el("p","small muted","現在: "+currentUserObj().name+(isLeader()?"（リーダー）":"")));
+  var ulist=el("div");uc.appendChild(ulist);
+  function drawUsers(){
+    ulist.innerHTML="";
+    users.forEach(function(u){
+      var it=el("div","genitem");
+      var head=el("div");var nmb=el("b");nmb.textContent=u.name;head.appendChild(nmb);
+      if(u.leader){var lb=el("span","pill");lb.textContent="リーダー";lb.style.cssText="color:var(--accent);border-color:var(--accent);margin-left:6px";head.appendChild(lb);}
+      if(u.id===currentUser){var cu=el("span","pill");cu.textContent="使用中";cu.style.marginLeft="6px";head.appendChild(cu);}
+      if(u.pin)head.appendChild(document.createTextNode(" 🔒"));
+      it.appendChild(head);
+      var r=el("div","row");r.style.marginTop="6px";
+      var swb=el("button","btn sec","切替");swb.onclick=(function(uu){return function(){if(uu.id===currentUser)return;if(uu.pin){var p=prompt(uu.name+" のPIN");if(p!==uu.pin){toast("PINが違います");return;}}switchUser(uu.id);setUserBadge();renderSettings();};})(u);
+      var edb=el("button","btn sec","編集");edb.onclick=(function(uu){return function(){editUser(uu,drawUsers);};})(u);
+      var xb=el("button","btn sec","削除");xb.onclick=(function(uu){return function(){if(users.length<=1){toast("最低1人は必要です");return;}if(uu.id===currentUser){toast("使用中のユーザーは削除不可。先に切替えてください");return;}if(confirm(uu.name+" を削除しますか？（このユーザーの学習ログも消えます）")){users=users.filter(function(x){return x.id!==uu.id;});delete progByU[uu.id];delete histByU[uu.id];delete collByU[uu.id];delete notesByU[uu.id];saveUsers();store.set(LS_PROGBYU,progByU);store.set(LS_HISTBYU,histByU);store.set(LS_COLLBYU,collByU);store.set(LS_NOTESBYU,notesByU);drawUsers();}};})(u);
+      r.appendChild(swb);r.appendChild(edb);r.appendChild(xb);it.appendChild(r);ulist.appendChild(it);
+    });
+  }
+  drawUsers();
+  var addr=el("div","row");addr.style.marginTop="10px";
+  var nui=el("input");nui.type="text";nui.placeholder="新しいユーザー名";nui.style.flex="1";
+  var aub=el("button","btn","＋ ユーザー追加");
+  aub.onclick=function(){if(users.length>=10){toast("最大10人までです");return;}var nm=nui.value.trim();if(!nm){toast("名前を入力してください");return;}users.push({id:"u"+Date.now(),name:nm,pin:"",leader:false});saveUsers();nui.value="";drawUsers();};
+  addr.appendChild(nui);addr.appendChild(aub);uc.appendChild(addr);
+  m.appendChild(uc);
   const info=el("div","card");
   info.innerHTML=`<h2>使い方メモ</h2>
    <ul class="small muted" style="padding-left:18px">
@@ -1878,6 +1951,7 @@ function renderSettings(){
 }
 
 renderHome();
+setUserBadge();
 initSync();
 </script>
 <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
