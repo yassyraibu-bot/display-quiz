@@ -778,12 +778,28 @@ function renderHome(){
     collections.forEach(function(c){
       var act=questionsActive().filter(function(qq){return c.qids.indexOf(qq.id)>=0;});
       var rowx=el("div","genitem");
-      rowx.appendChild(el("div",null,`<b>${escapeHtml(c.name)}</b> <span class="small muted">${act.length}問</span>`));
+      rowx.appendChild(el("div",null,`<b>${escapeHtml(c.name)}</b> <span class="small muted">${act.length}/${c.qids.length}問（出題可/登録）</span>`));
       var br=el("div","row");
       var go=el("button","btn",act.length?"▶ 出題":"（出題可能な問題なし）");go.disabled=!act.length;go.onclick=(function(list){return function(){startQuiz(list);};})(act);
+      var lst=el("button","btn sec","📋 一覧");
       var rn=el("button","btn sec","✏ 名前変更");rn.onclick=(function(col){return function(){var nm=prompt("新しい名前",col.name);if(nm&&nm.trim()){col.name=nm.trim();saveCollections();renderHome();}};})(c);
       var rmc=el("button","btn sec","🗑 削除");rmc.onclick=(function(col){return function(){if(confirm(col.name+" を削除しますか？（問題自体は消えません）")){collections=collections.filter(function(x){return x.id!==col.id;});saveCollections();renderHome();}};})(c);
-      br.appendChild(go);br.appendChild(rn);br.appendChild(rmc);rowx.appendChild(br);cc.appendChild(rowx);
+      br.appendChild(go);br.appendChild(lst);br.appendChild(rn);br.appendChild(rmc);rowx.appendChild(br);
+      var listBox=el("div");rowx.appendChild(listBox);
+      lst.onclick=(function(col,host){return function(){
+        if(host.innerHTML){host.innerHTML="";return;}
+        if(!col.qids.length){host.appendChild(el("div","small muted","登録された問題はありません。"));return;}
+        var allq=allQuestions();
+        col.qids.slice().forEach(function(qid){
+          var qq=allq.filter(function(x){return x.id===qid;})[0];
+          var li=el("div","row");li.style.cssText="align-items:center;gap:8px;border-top:1px solid var(--line);padding:6px 0";
+          var tx=el("div");tx.style.flex="1";tx.innerHTML=qq?(`<span class="small muted">${escapeHtml(qid)}</span> `+escapeHtml(qq.question.slice(0,60))):(`<span class="small muted">${escapeHtml(qid)}</span> (削除済みの問題)`);
+          var ub=el("button","btn sec","解除");ub.style.padding="4px 10px";
+          ub.onclick=(function(cc2,id){return function(){cc2.qids=cc2.qids.filter(function(x){return x!==id;});saveCollections();renderHome();};})(col,qid);
+          li.appendChild(tx);li.appendChild(ub);host.appendChild(li);
+        });
+      };})(c,listBox);
+      cc.appendChild(rowx);
     });
     m.appendChild(cc);
   }
