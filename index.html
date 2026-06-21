@@ -1421,12 +1421,41 @@ function renderManage(){
       it.appendChild(el("div","small muted","指摘: "+escapeHtml(fb.note||"(なし)")));
       var br=el("div","row");br.style.marginTop="6px";
       var tq=allQuestions().filter(function(x){return x.id===fb.qid;})[0];
-      if(tq&&settings.apiKey){var fixb=el("button","btn ghost","🔧 AIで校正");
-        fixb.onclick=(function(qq,note,fbk,btn){return async function(){btn.disabled=true;btn.textContent="校正中…";try{var fixed=await proofreadQuestion(qq,note);applyFix(qq,fixed);fbk.status="fixed";store.set(LS_FEEDBACK,feedback);toast("校正して反映しました");renderManage();}catch(e){alert("校正に失敗: "+e.message);btn.disabled=false;btn.textContent="🔧 AIで校正";}};})(tq,fb.note,fb,fixb);
-        br.appendChild(fixb);}
+      var fixBox=el("div");
+      if(tq&&settings.apiKey){
+        var fixb=el("button","btn ghost","🔧 AIで校正");
+        fixb.onclick=(function(qq,note,fbk,btn,host){return async function(){
+          var fp=buildFixPrompt(qq,note);
+          btn.disabled=true;btn.textContent="見積り中…";
+          var inTok; try{inTok=await countTokens(fp);}catch(e){inTok=Math.ceil(fp.length/3);}
+          var maxOut=2048;
+          btn.disabled=false;btn.textContent="🔧 AIで校正";
+          var ok=await confirmFixCost(settings.model,inTok,maxOut,settings.jpyRate||155);
+          if(!ok)return;
+          btn.disabled=true;btn.textContent="校正中…";
+          try{
+            var fixed=await proofreadQuestion(qq,note);
+            host.innerHTML="";
+            var pv=el("div","card");pv.style.marginTop="8px";
+            pv.appendChild(el("div","small muted","【元の問題】"));
+            pv.appendChild(el("div",null,escapeHtml(qq.question)));
+            pv.appendChild(el("div","small muted","【AI校正後】"));
+            pv.appendChild(el("div",null,escapeHtml(fixed.question)));
+            if(fixed.type==="mc"&&fixed.choices)pv.appendChild(el("div","small muted","選択肢: "+fixed.choices.map(function(c,j){return (j===fixed.answer?"✅":"")+escapeHtml(c);}).join(" / ")));
+            if(fixed.type==="fill"&&fixed.answer)pv.appendChild(el("div","small muted","解答: "+(Array.isArray(fixed.answer[0])?fixed.answer.map(function(a){return "["+a.join("/")+"]";}):fixed.answer).join(" , ")));
+            if(fixed.explanation)pv.appendChild(el("div","small muted","解説: "+escapeHtml(String(fixed.explanation).slice(0,160))));
+            var prow=el("div","row");prow.style.marginTop="8px";
+            var ap=el("button","btn","✅ 反映する");ap.onclick=function(){applyFix(qq,fixed);fbk.status="fixed";store.set(LS_FEEDBACK,feedback);toast("反映しました");renderManage();};
+            var apd=el("button","btn","✅ 反映して報告を削除");apd.onclick=function(){applyFix(qq,fixed);feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);toast("反映し報告を削除しました");renderManage();};
+            prow.appendChild(ap);prow.appendChild(apd);pv.appendChild(prow);host.appendChild(pv);typeset(pv);
+            btn.disabled=false;btn.textContent="🔧 AIで再校正";
+          }catch(e){alert("校正に失敗: "+e.message);btn.disabled=false;btn.textContent="🔧 AIで校正";}
+        };})(tq,fb.note,fb,fixb,fixBox);
+        br.appendChild(fixb);
+      }
       if(tq){var edb=el("button","btn sec","✏ 編集");edb.onclick=(function(id){return function(){if(userQ.some(function(u){return u.id===id;}))editUserQuestion(id);else toast("内蔵問題は直接編集不可。AI校正で修正版を作成できます");};})(fb.qid);br.appendChild(edb);}
       var rmBtn=el("button","btn sec","削除");rmBtn.onclick=(function(fbk){return function(){feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);renderManage();};})(fb);br.appendChild(rmBtn);
-      it.appendChild(br);fbc.appendChild(it);
+      it.appendChild(br);it.appendChild(fixBox);fbc.appendChild(it);
     });
     m.appendChild(fbc);
   }
@@ -1596,6 +1625,11 @@ function confirmModal(title,bodyHtml){
     ov.querySelector("#m_yes").onclick=function(){ov.remove();res(true);};
     ov.querySelector("#m_no").onclick=function(){ov.remove();res(false);};
   });
+}
+function confirmFixCost(model,inTok,maxOut,jpy){
+  var cTyp=costUSD(model,inTok,Math.min(maxOut,600)),cMax=costUSD(model,inTok,maxOut);
+  var body=`<p class="small muted">このAI校正にかかる想定料金です（Anthropic API・従量課金）。実際の額は応答の長さで変わります。生成後、正確な使用量は「料金」タブに記録されます。</p><table><tr><th>モデル</th><td>${escapeHtml(model)}</td></tr><tr><th>入力トークン</th><td>${inTok.toLocaleString()}</td></tr><tr><th>想定コスト</th><td><b>$${cTyp.toFixed(4)}</b> 〜 $${cMax.toFixed(4)}（最大）</td></tr><tr><th>日本円(約¥${jpy}/$)</th><td>約 ¥${(cTyp*jpy).toFixed(2)} 〜 ¥${(cMax*jpy).toFixed(2)}</td></tr></table>`;
+  return confirmModal("AI校正の料金確認（承認）",body);
 }
 function confirmGenCost(model,inTok,outTyp,maxOut,jpy){
   var cTyp=costUSD(model,inTok,outTyp),cMax=costUSD(model,inTok,maxOut);
