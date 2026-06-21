@@ -1,0 +1,16 @@
+{
+  "name": "ディスプレイ半導体 問題集",
+  "short_name": "問題集",
+  "description": "LCD / IGZO 半導体プロセスと回路設計の問題集",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
