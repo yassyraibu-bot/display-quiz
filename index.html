@@ -557,6 +557,7 @@ let settings=Object.assign({apiKey:"",model:"claude-haiku-4-5-20251001"},store.g
 if(!settings.srs||typeof settings.srs!=="object")settings.srs={step1:1,step2:3,lapseMin:10,ease:2.5};
 if(!settings.sync||typeof settings.sync!=="object")settings.sync={token:"",gistId:"",auto:true};
 if(typeof settings.jpyRate!=="number")settings.jpyRate=155;
+if(typeof settings.simThreshold!=="number")settings.simThreshold=0.45;
 let history=store.get(LS_HIST,[]);
 let hidden=new Set(store.get(LS_HIDDEN,[]));
 let usage=store.get(LS_USAGE,[]);
@@ -673,9 +674,10 @@ function escapeHtml(s){return (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&"
 /* ====================== ルーティング ====================== */
 const nav=$("#nav");
 nav.addEventListener("click",e=>{const b=e.target.closest("button[data-view]");if(!b)return;
+  if(genRunning && b.dataset.view!==_view){if(!confirm("AI生成を実行中です。中断して移動しますか？（生成済みの問題は保持されます）"))return; genCancel=true;}
   [...nav.children].forEach(x=>x.classList.toggle("active",x===b));render(b.dataset.view);});
 function setNav(v){[...nav.children].forEach(x=>x.classList.toggle("active",x.dataset.view===v));}
-let _view="home";
+let _view="home"; let genRunning=false, genCancel=false;
 function render(view){
   _view=view;
   if(view==="home")renderHome();
@@ -688,12 +690,16 @@ function render(view){
 }
 
 /* ====================== 出題設定画面 ====================== */
-let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false};
+let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,keyword:""};
 function renderHome(){
   const m=$("#main");m.innerHTML="";
   const cats=uniqueCategories();
   const card=el("div","card");
   card.appendChild(el("h2",null,"出題設定"));
+  card.appendChild(el("h3",null,"キーワード検索（任意・スペース区切りでAND）"));
+  var kwInput=el("input");kwInput.type="text";kwInput.placeholder="例: IGZO 移動度 / NBIS 対策";kwInput.value=filter.keyword||"";
+  kwInput.addEventListener("input",function(){filter.keyword=kwInput.value;var pl=poolFromFilter();var pc=document.getElementById("home_poolcount");if(pc)pc.innerHTML="条件に合う問題: <b style=\"color:var(--txt)\">"+pl.length+"</b> 問（うち出題 "+Math.min(filter.count,pl.length)+" 問）";var sb=document.getElementById("home_start");if(sb)sb.disabled=pl.length===0;});
+  card.appendChild(kwInput);
   card.appendChild(el("h3",null,"カテゴリ（未選択=すべて）"));
   const catWrap=el("div","row");
   cats.forEach(c=>{const chip=el("span","chip"+(filter.cats.has(c)?" on":""),escapeHtml(c));
@@ -720,8 +726,9 @@ function renderHome(){
   opt.appendChild(cntInput);
   card.appendChild(opt);
   const pool=poolFromFilter();
-  card.appendChild(el("p","small muted",`条件に合う問題: <b style="color:var(--txt)">${pool.length}</b> 問（うち出題 ${Math.min(filter.count,pool.length)} 問） ／ 全 ${questionsActive().length} 問`));
+  var poolP=el("p","small muted",`条件に合う問題: <b style="color:var(--txt)">${pool.length}</b> 問（うち出題 ${Math.min(filter.count,pool.length)} 問） ／ 全 ${questionsActive().length} 問`);poolP.id="home_poolcount";card.appendChild(poolP);
   const start=el("button","btn","▶ クイズ開始");
+  start.id="home_start";
   start.disabled=pool.length===0;
   start.onclick=()=>startQuiz(pool);
   card.appendChild(start);
@@ -752,6 +759,7 @@ function poolFromFilter(){
     if(!filter.diffs.has(q.difficulty))return false;
     if(!filter.types.has(q.type))return false;
     if(filter.weakOnly && getProg(q.id).wrong<=0)return false;
+    if(filter.keyword){var __t=filter.keyword.trim().toLowerCase().split(/[\s　]+/).filter(Boolean).map(norm);var __h=norm(q.question+" "+(q.explanation||"")+" "+(q.category||[]).join(" ")+" "+(q.choices?q.choices.join(" "):"")+" "+((q.answer&&q.answer.join)?q.answer.join(" "):"")+" "+(q.modelAnswer||"")+" "+((q.keyPoints&&q.keyPoints.join)?q.keyPoints.join(" "):""));if(!__t.every(function(x){return __h.indexOf(x)>=0;}))return false;}
     return true;
   });
 }
@@ -1006,7 +1014,7 @@ function parseGenerated(text){
 function triSet(s){var t=norm(s);var set=new Set();if(t.length<3){if(t)set.add(t);return set;}for(var i=0;i<=t.length-3;i++)set.add(t.substr(i,3));return set;}
 function jacc(a,b){if(!a.size||!b.size)return 0;var inter=0;a.forEach(function(x){if(b.has(x))inter++;});return inter/(a.size+b.size-inter);}
 function overlapCoef(a,b){if(!a.size||!b.size)return 0;var inter=0;a.forEach(function(x){if(b.has(x))inter++;});return inter/Math.min(a.size,b.size);}
-function tooSimilar(a,b){return overlapCoef(a,b)>0.45||jacc(a,b)>0.5;}
+function tooSimilar(a,b){var th=settings.simThreshold||0.45;if(th>=1)return false;return overlapCoef(a,b)>th||jacc(a,b)>Math.max(0.5,th);}
 var SIM_THRESHOLD=0.55;
 function dedupeNew(list){
   var knownTri=questionsActive().map(function(q){return triSet(q.question);});
@@ -1032,6 +1040,7 @@ function renderGen(){
         <select id="g_type"><option value="mix">混在</option><option value="mc">4択</option><option value="fill">穴埋め</option><option value="reason">記述(理由)</option></select></div>
       <div style="flex:1;min-width:120px"><label>問題数</label>
         <select id="g_count"><option>5</option><option>10</option><option selected>20</option><option>50</option><option>100</option><option>200</option><option>500</option><option>1000</option></select></div>
+      <div style="flex:1;min-width:150px"><label>重複除外の強さ</label><select id="g_sim"><option value="0.35">厳しめ(多く弾く)</option><option value="0.45">標準</option><option value="0.6">緩め</option><option value="1.1">弾かない</option></select></div>
     </div>
     <label>重視トピック（任意・カンマ区切り）</label>
     <input id="g_topic" type="text" placeholder="例: 高移動度酸化物, CAAC, ミニLED, EUV, DRAM応用">
@@ -1051,7 +1060,7 @@ function renderGen(){
   prow.appendChild(pbtn);paste.appendChild(prow);
   m.appendChild(paste);
 
-  const preview=el("div");m.appendChild(preview);
+  const preview=el("div");preview.id="gen_preview";m.appendChild(preview);
 
   function opts(){return{
     cats:card.querySelector("#g_cat").value.trim()||"指定なし",
@@ -1062,8 +1071,11 @@ function renderGen(){
   card.querySelector("#g_copy").onclick=async()=>{const p=genPrompt(opts());
     try{await navigator.clipboard.writeText(p);toast("プロンプトをコピーしました");}catch(e){toast("コピーに失敗");}};
   card.querySelector("#g_open").onclick=()=>window.open("https://claude.ai/new","_blank");
+  card.querySelector("#g_sim").value=String(settings.simThreshold||0.45);
+  card.querySelector("#g_sim").onchange=function(){settings.simThreshold=parseFloat(card.querySelector("#g_sim").value)||0.45;store.set(LS_SET,settings);};
   card.querySelector("#g_run").onclick=async()=>{
     const o=opts();const btn=card.querySelector("#g_run");
+    if(genRunning){toast("生成中です。完了までお待ちください");return;}
     if(!settings.apiKey){
       // 無料ルート案内
       const p=genPrompt(o);
@@ -1082,14 +1094,15 @@ function renderGen(){
     const ok=await confirmGenCost(settings.model,inTotal,outTyp,nB*maxOut,settings.jpyRate||155);
     if(!ok)return;
     btn.disabled=true;
-    let acc=[], attempts=0, maxAttempts=nB+5;
+    genBuffer=[]; genRunning=true; genCancel=false;
+    let attempts=0, maxAttempts=nB+5;
     var knownTri=questionsActive().map(function(q){return triSet(q.question);});
     var knownKeys=new Set(questionsActive().map(function(q){return norm(q.question);}));
-    while(acc.length<target && attempts<maxAttempts){
+    while(genBuffer.length<target && attempts<maxAttempts && !genCancel){
       attempts++;
-      btn.textContent="⚡ 生成中… "+acc.length+"/"+target+"問";
-      const need=Math.min(BATCH,target-acc.length);
-      var avoid=acc.slice(-40).map(function(q){return q.question;});
+      var sbtn=document.getElementById("g_run");if(sbtn){sbtn.disabled=true;sbtn.textContent="⚡ 生成中… "+genBuffer.length+"/"+target+"問";}
+      const need=Math.min(BATCH,target-genBuffer.length);
+      var avoid=genBuffer.slice(-40).map(function(q){return q.question;});
       var pool=questionsActive();for(var z=pool.length-1;z>=0 && avoid.length<55;z--){avoid.push(pool[z].question);}
       try{
         const text=await callClaude(genPrompt(Object.assign({},o2,{count:need,avoid:avoid})),maxOut,"gen");
@@ -1101,16 +1114,17 @@ function renderGen(){
           var ts=triSet(q.question);var dup=false;
           for(var ki=0;ki<knownTri.length;ki++){if(tooSimilar(ts,knownTri[ki])){dup=true;break;}}
           if(dup)continue;
-          knownKeys.add(k);knownTri.push(ts);acc.push(q);added++;
-          if(acc.length>=target)break;
+          knownKeys.add(k);knownTri.push(ts);genBuffer.push(q);added++;
+          if(genBuffer.length>=target)break;
         }
+        var ph=document.getElementById("gen_preview");if(ph)showPreview(genBuffer.slice(),ph);
         if(!added && attempts>=nB)break;
       }catch(err){alert("生成に失敗しました(一部完了): "+err.message);break;}
     }
-    genBuffer=acc.slice(0,target);
-    showPreview(genBuffer,preview);
-    toast(genBuffer.length+"問を生成しました（確認して追加）");
-    btn.disabled=false;btn.textContent="⚡ 生成する";
+    genRunning=false;
+    var ph2=document.getElementById("gen_preview");if(ph2)showPreview(genBuffer.slice(),ph2);
+    var rb=document.getElementById("g_run");if(rb){rb.disabled=false;rb.textContent="⚡ 生成する";}
+    toast(genBuffer.length+"問を生成しました（確認して追加）"+(genCancel?"（中断）":""));
   };
   pbtn.onclick=()=>{
     try{const parsed=dedupeNew(parseGenerated(pta.value));
@@ -1150,6 +1164,7 @@ function renderGen(){
     host.appendChild(c);typeset(c);
   }
   if(genBuffer.length)showPreview(genBuffer,preview);
+  if(genRunning){var rgb=card.querySelector("#g_run");if(rgb){rgb.disabled=true;rgb.textContent="⚡ 生成中…（"+genBuffer.length+"問）";}}
 }
 
 /* ====================== 問題フォーム（追加・編集 共用） ====================== */
