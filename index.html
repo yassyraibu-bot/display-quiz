@@ -1411,6 +1411,25 @@ function renderAdd(){
 /* ====================== 問題の管理（編集・削除・非表示） ====================== */
 function renderManage(){
   const m=$("#main");m.innerHTML="";
+  if(feedback.length){
+    var fbc=el("div","card");
+    fbc.appendChild(el("h2",null,"⚠ 報告された問題（"+feedback.length+"件）"));
+    feedback.slice().reverse().slice(0,50).forEach(function(fb){
+      var it=el("div","genitem");
+      it.appendChild(el("div","small muted",new Date(fb.t).toLocaleString()+" ｜ ID: "+(fb.qid||"-")+(fb.status==="fixed"?" ｜ ✓校正済":"")));
+      it.appendChild(el("div",null,escapeHtml((fb.question||"").slice(0,80))));
+      it.appendChild(el("div","small muted","指摘: "+escapeHtml(fb.note||"(なし)")));
+      var br=el("div","row");br.style.marginTop="6px";
+      var tq=allQuestions().filter(function(x){return x.id===fb.qid;})[0];
+      if(tq&&settings.apiKey){var fixb=el("button","btn ghost","🔧 AIで校正");
+        fixb.onclick=(function(qq,note,fbk,btn){return async function(){btn.disabled=true;btn.textContent="校正中…";try{var fixed=await proofreadQuestion(qq,note);applyFix(qq,fixed);fbk.status="fixed";store.set(LS_FEEDBACK,feedback);toast("校正して反映しました");renderManage();}catch(e){alert("校正に失敗: "+e.message);btn.disabled=false;btn.textContent="🔧 AIで校正";}};})(tq,fb.note,fb,fixb);
+        br.appendChild(fixb);}
+      if(tq){var edb=el("button","btn sec","✏ 編集");edb.onclick=(function(id){return function(){if(userQ.some(function(u){return u.id===id;}))editUserQuestion(id);else toast("内蔵問題は直接編集不可。AI校正で修正版を作成できます");};})(fb.qid);br.appendChild(edb);}
+      var rmBtn=el("button","btn sec","削除");rmBtn.onclick=(function(fbk){return function(){feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);renderManage();};})(fb);br.appendChild(rmBtn);
+      it.appendChild(br);fbc.appendChild(it);
+    });
+    m.appendChild(fbc);
+  }
   const card=el("div","card");
   card.appendChild(el("h2",null,"問題の管理（編集・削除・出題除外）"));
   const search=el("input");search.type="text";search.placeholder="キーワードで絞り込み";card.appendChild(search);
@@ -1420,13 +1439,13 @@ function renderManage(){
     const kw=norm(search.value);
     listHost.innerHTML="";
     const all=allQuestions();
-    const items=all.filter(qq=>!kw||norm(qq.question).includes(kw)||qq.category.some(c=>norm(c).includes(kw)));
+    const items=all.filter(qq=>!kw||norm(qq.id).includes(kw)||norm(qq.question).includes(kw)||qq.category.some(c=>norm(c).includes(kw)));
     listHost.appendChild(el("p","small muted",`全 ${all.length} 問（ユーザー追加 ${userQ.length} / 内蔵 ${SEED.length} / 非表示 ${hidden.size}）｜表示 ${items.length} 件`));
     items.forEach(qq=>{
       const isUser=userQ.some(u=>u.id===qq.id);
       const isHidden=hidden.has(qq.id);
       const it=el("div","genitem");it.style.opacity=isHidden?"0.55":"1";
-      it.appendChild(el("div",null,`<div class="small muted">${diffPill(qq.difficulty)} <span class="pill">${TYPE[qq.type]}</span> ${qq.category.map(c=>`<span class="tag">${escapeHtml(c)}</span>`).join("")} ${isUser?'<span class="pill" style="color:var(--accent);border-color:var(--accent)">追加</span>':'<span class="pill">内蔵</span>'}${isHidden?' <span class="pill" style="color:var(--ng);border-color:var(--ng)">出題除外中</span>':''}</div>
+      it.appendChild(el("div",null,`<div class="small muted">ID:${qq.id} ｜ ${diffPill(qq.difficulty)} <span class="pill">${TYPE[qq.type]}</span> ${qq.category.map(c=>`<span class="tag">${escapeHtml(c)}</span>`).join("")} ${isUser?'<span class="pill" style="color:var(--accent);border-color:var(--accent)">追加</span>':'<span class="pill">内蔵</span>'}${isHidden?' <span class="pill" style="color:var(--ng);border-color:var(--ng)">出題除外中</span>':''}</div>
         <div style="margin:4px 0">${escapeHtml(qq.question.slice(0,100))}${qq.question.length>100?"…":""}</div>`));
       const row=el("div","row");
       if(isUser){
@@ -1440,18 +1459,6 @@ function renderManage(){
       it.appendChild(row);listHost.appendChild(it);
     });
     typeset(listHost);
-  }
-  if(feedback.length){
-    var fc=el("div","card");
-    fc.appendChild(el("h2",null,"⚠ 報告された問題（"+feedback.length+"件）"));
-    var ft=el("table");ft.innerHTML="<tr><th>日時</th><th>問題</th><th>指摘</th><th></th></tr>";
-    feedback.slice().reverse().slice(0,50).forEach(function(fb){
-      var tr=el("tr",null,"<td>"+new Date(fb.t).toLocaleDateString()+"</td><td>"+escapeHtml((fb.question||"").slice(0,38))+"…</td><td>"+escapeHtml((fb.note||"").slice(0,60))+"</td>");
-      var tcell=el("td");var rmBtn=el("button","btn sec","削除");rmBtn.style.padding="4px 10px";
-      rmBtn.onclick=function(){feedback=feedback.filter(function(x){return x.t!==fb.t;});store.set(LS_FEEDBACK,feedback);renderManage();};
-      tcell.appendChild(rmBtn);tr.appendChild(tcell);ft.appendChild(tr);
-    });
-    fc.appendChild(ft);m.appendChild(fc);
   }
   search.addEventListener("input",draw);draw();
 }
