@@ -959,12 +959,23 @@ function genPrompt(opts){
   p+=`例: [{"type":"mc","difficulty":2,"category":["IGZO"],"question":"…?","choices":["正解","誤1","誤2","誤3"],"answer":0,"explanation":"…"}]`;
   return p;
 }
+function salvageObjects(s){
+  var out=[],depth=0,start=-1,inStr=false,esc=false;
+  for(var i=0;i<s.length;i++){var ch=s[i];
+    if(inStr){if(esc){esc=false;}else if(ch==="\\"){esc=true;}else if(ch==="\""){inStr=false;}continue;}
+    if(ch==="\""){inStr=true;continue;}
+    if(ch==="{"){if(depth===0)start=i;depth++;}
+    else if(ch==="}"){depth--;if(depth===0&&start>=0){var frag=s.slice(start,i+1);try{out.push(JSON.parse(frag));}catch(e){}start=-1;}}
+  }
+  return out;
+}
 function parseGenerated(text){
   let s=(text||"").trim();
   const a=s.indexOf("["),b=s.lastIndexOf("]");
   if(a>=0&&b>a)s=s.slice(a,b+1);
-  let arr;try{arr=JSON.parse(s);}catch(e){throw new Error("JSONを解釈できませんでした。出力形式を確認してください。");}
-  if(!Array.isArray(arr))throw new Error("JSON配列ではありません。");
+  let arr=null;try{arr=JSON.parse(s);}catch(e){arr=null;}
+  if(!Array.isArray(arr)){var sal=salvageObjects(s);if(sal.length)arr=sal;}
+  if(!Array.isArray(arr))throw new Error("JSONを解釈できませんでした。出力形式を確認してください。");
   const out=[];
   arr.forEach(o=>{
     if(!o||typeof o!=="object")return;
@@ -1062,11 +1073,11 @@ function renderGen(){
       return;
     }
     const o2=opts();
-    const BATCH=15, target=o2.count, nB=Math.ceil(target/BATCH);
+    const BATCH=10, target=o2.count, nB=Math.ceil(target/BATCH);
     const samplePrompt=genPrompt(Object.assign({},o2,{count:Math.min(BATCH,target)}));
     btn.disabled=true;btn.textContent="⚡ 見積り中…";
     let inTok; try{inTok=await countTokens(samplePrompt);}catch(e){inTok=Math.ceil(samplePrompt.length/3);}
-    const maxOut=4096, inTotal=inTok*nB, outTyp=Math.min(nB*maxOut,target*200);
+    const maxOut=8192, inTotal=inTok*nB, outTyp=Math.min(nB*maxOut,target*200);
     btn.disabled=false;btn.textContent="⚡ 生成する";
     const ok=await confirmGenCost(settings.model,inTotal,outTyp,nB*maxOut,settings.jpyRate||155);
     if(!ok)return;
