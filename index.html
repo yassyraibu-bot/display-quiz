@@ -719,7 +719,7 @@ function render(view){
 }
 
 /* ====================== 出題設定画面 ====================== */
-let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,keyword:""};
+let filter={cats:new Set(),diffs:new Set([1,2,3]),types:new Set(["mc","fill","reason"]),count:10,weakOnly:false,unseenOnly:false,keyword:""};
 function renderHome(){
   const m=$("#main");m.innerHTML="";
   const cats=uniqueCategories();
@@ -747,8 +747,11 @@ function renderHome(){
   card.appendChild(el("h3",null,"オプション"));
   const opt=el("div","row");
   const weakChip=el("span","chip"+(filter.weakOnly?" on":""),"⚠ 苦手(間違えた)問題のみ");
-  weakChip.onclick=()=>{filter.weakOnly=!filter.weakOnly;renderHome();};
+  weakChip.onclick=()=>{filter.weakOnly=!filter.weakOnly;if(filter.weakOnly)filter.unseenOnly=false;renderHome();};
   opt.appendChild(weakChip);
+  const newChip=el("span","chip"+(filter.unseenOnly?" on":""),"🆕 未出題（解いたことがない）のみ");
+  newChip.onclick=()=>{filter.unseenOnly=!filter.unseenOnly;if(filter.unseenOnly)filter.weakOnly=false;renderHome();};
+  opt.appendChild(newChip);
   opt.appendChild(el("span","small muted","出題数"));
   const cntInput=el("input");cntInput.type="number";cntInput.min=1;cntInput.value=filter.count;cntInput.style.width="80px";
   cntInput.onchange=()=>{filter.count=Math.max(1,parseInt(cntInput.value)||10);};
@@ -819,6 +822,7 @@ function poolFromFilter(){
     if(!filter.diffs.has(q.difficulty))return false;
     if(!filter.types.has(q.type))return false;
     if(filter.weakOnly && getProg(q.id).wrong<=0)return false;
+    if(filter.unseenOnly && getProg(q.id).seen>0)return false;
     if(filter.keyword){var __t=filter.keyword.trim().toLowerCase().split(/[\s　]+/).filter(Boolean).map(norm);var __h=norm(q.question+" "+(q.explanation||"")+" "+(q.category||[]).join(" ")+" "+(q.choices?q.choices.join(" "):"")+" "+((q.answer&&q.answer.join)?q.answer.join(" "):"")+" "+(q.modelAnswer||"")+" "+((q.keyPoints&&q.keyPoints.join)?q.keyPoints.join(" "):""));if(!__t.every(function(x){return __h.indexOf(x)>=0;}))return false;}
     return true;
   });
