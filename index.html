@@ -594,6 +594,25 @@ let history=histByU[currentUser]||(histByU[currentUser]=[]);
 let collections=collByU[currentUser]||(collByU[currentUser]=[]);
 let notes=notesByU[currentUser]||(notesByU[currentUser]={});
 
+function qIssues(q){
+  var out=[];
+  if(q.type==="fill"){
+    var blanks=(q.question.match(/_{2,}/g)||[]).length;
+    var sets=Array.isArray(q.answer&&q.answer[0])?q.answer.length:1;
+    if(blanks>1&&sets===1)out.push("空欄が複数なのに解答が1組");
+    else if(blanks>0&&blanks!==sets)out.push("空欄数("+blanks+")と解答数("+sets+")が不一致");
+    var qtext=norm(q.question.replace(/_{2,}/g," "));
+    var flat=Array.isArray(q.answer&&q.answer[0])?[].concat.apply([],q.answer):(q.answer||[]);
+    if(flat.some(function(a){var na=norm(a);return na.length>=2&&qtext.indexOf(na)>=0;}))out.push("答えが問題文中に書かれている可能性");
+  } else if(q.type==="mc"){
+    if(!Array.isArray(q.choices)||q.choices.length<2)out.push("選択肢が不足");
+    else{var nn=q.choices.map(norm);if(new Set(nn).size<nn.length)out.push("選択肢に重複");if(q.choices.length<4)out.push("選択肢が4個未満");}
+  } else if(q.type==="reason"){
+    if(!q.modelAnswer||!String(q.modelAnswer).trim())out.push("模範解答が空");
+  }
+  if(!q.question||q.question.trim().length<5)out.push("問題文が短すぎる");
+  return out;
+}
 function sanitizeQ(q){
   if(!q||typeof q!=="object"||typeof q.question!=="string"||!q.question.trim())return null;
   if(!q.id)q.id="u"+Date.now()+Math.random().toString(36).slice(2,6);
@@ -601,6 +620,7 @@ function sanitizeQ(q){
   if(!Array.isArray(q.category)||!q.category.length)q.category=["未分類"];
   q.category=q.category.map(String);
   if(![1,2,3].includes(q.difficulty))q.difficulty=2;
+  if(!q.author&&/^g/.test(q.id))q.author="ai";
   if(q.type==="mc"){if(!Array.isArray(q.choices)||q.choices.length<2)return null;q.choices=q.choices.map(String);if(typeof q.answer!=="number"||q.answer<0||q.answer>=q.choices.length)q.answer=0;}
   else if(q.type==="fill"){var a=q.answer;if(typeof a==="string")a=[a];if(!Array.isArray(a)||!a.length)return null;q.answer=a;if(!/_{2,}/.test(q.question))q.question=q.question+" ___ ";}
   else if(q.type==="reason"){if(typeof q.modelAnswer!=="string")q.modelAnswer=q.modelAnswer?String(q.modelAnswer):"（模範解答未登録）";if(!Array.isArray(q.keyPoints))q.keyPoints=[];}
@@ -1682,6 +1702,23 @@ function renderManage(){
       var r=el("div","row");r.style.marginTop="6px";r.appendChild(tg);it.appendChild(r);it.appendChild(box);qc.appendChild(it);
     });
     m.appendChild(qc);
+  }
+  var issueList=allQuestions().filter(function(q){return qIssues(q).length>0;});
+  if(issueList.length){
+    var ic=el("div","card");
+    ic.appendChild(el("h2",null,"⚠ 不備の可能性がある問題（"+issueList.length+"件）"));
+    ic.appendChild(el("p","small muted","空欄の後に答えがある／空欄数と解答数の不一致／選択肢の重複などを自動検出。編集またはAI校正で直せます。"));
+    issueList.slice(0,100).forEach(function(q){
+      var it=el("div","genitem");
+      it.appendChild(el("div","small muted","ID:"+q.id+" ｜ "+TYPE[q.type]+" ｜ "+(!q.author?"内蔵":(q.author==="ai"?"AI生成":"個人作成"))));
+      it.appendChild(el("div",null,escapeHtml(q.question.slice(0,80))));
+      var iss=el("div","small muted","⚠ "+qIssues(q).join(" / "));iss.style.color="var(--warn)";it.appendChild(iss);
+      var r=el("div","row");r.style.marginTop="6px";
+      if(userQ.some(function(u){return u.id===q.id;})){var edb=el("button","btn sec","✏ 編集");edb.onclick=(function(id){return function(){editUserQuestion(id);};})(q.id);r.appendChild(edb);}
+      if(settings.apiKey){var fxb=el("button","btn ghost","🔧 AIで校正");fxb.onclick=(function(qq,btn){return async function(){var pr=buildFixPrompt(qq,qIssues(qq).join("、"));btn.disabled=true;btn.textContent="見積り中…";var inTok;try{inTok=await countTokens(pr);}catch(e){inTok=Math.ceil(pr.length/3);}btn.disabled=false;btn.textContent="🔧 AIで校正";var ok=await confirmFixCost(settings.model,inTok,2048,settings.jpyRate||155);if(!ok)return;btn.disabled=true;btn.textContent="校正中…";try{var fixed=await proofreadQuestion(qq,qIssues(qq).join("、"));applyFix(qq,fixed);toast("校正して反映しました");renderManage();}catch(e){alert("校正失敗: "+e.message);btn.disabled=false;btn.textContent="🔧 AIで校正";}};})(q,fxb);r.appendChild(fxb);}
+      it.appendChild(r);ic.appendChild(it);
+    });
+    m.appendChild(ic);
   }
   const card=el("div","card");
   card.appendChild(el("h2",null,"問題の管理（編集・削除・出題除外）"));
