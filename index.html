@@ -608,6 +608,46 @@ function showFixCompare(host,orig,fixed){
   var cc=el("button","btn sec","キャンセル");cc.onclick=function(){host.innerHTML="";};
   row.appendChild(ap);row.appendChild(ed);row.appendChild(cc);pv.appendChild(row);host.appendChild(pv);typeset(pv);
 }
+function confirmBatchCost(model,inTok,outTyp,maxOut,jpy,n){
+  var cTyp=costUSD(model,inTok,outTyp),cMax=costUSD(model,inTok,maxOut);
+  var body=`<p class="small muted">選択した${n}問をまとめてAI校正します（Anthropic API・従量課金）。実際の額は応答の長さで変わります。生成後、正確な使用量は「料金」タブに記録されます。</p><table><tr><th>モデル</th><td>${escapeHtml(model)}</td></tr><tr><th>問題数</th><td>${n} 問</td></tr><tr><th>入力トークン</th><td>${inTok.toLocaleString()}</td></tr><tr><th>想定コスト</th><td><b>$${cTyp.toFixed(4)} / 約¥${(cTyp*jpy).toFixed(1)}</b> 〜 $${cMax.toFixed(4)} / 約¥${(cMax*jpy).toFixed(1)}（最大）</td></tr></table>`;
+  return confirmModal("まとめてAI校正の料金確認（承認）",body);
+}
+async function batchProofread(qs,host){
+  if(!settings.apiKey){toast("APIキーが必要です");return;}
+  if(!qs.length)return;
+  var jpy=settings.jpyRate||155, inTok=0;
+  host.innerHTML="";var est=el("div","small muted","見積り中…");host.appendChild(est);
+  for(var i=0;i<qs.length;i++){var pr=buildFixPrompt(qs[i],qIssues(qs[i]).join("、"));try{inTok+=await countTokens(pr);}catch(e){inTok+=Math.ceil(pr.length/3);}}
+  var outTyp=600*qs.length, maxOut=2048*qs.length;
+  var ok=await confirmBatchCost(settings.model,inTok,outTyp,maxOut,jpy,qs.length);
+  if(!ok){host.innerHTML="";return;}
+  host.innerHTML="";var prog=el("div","small muted","校正中… 0/"+qs.length);host.appendChild(prog);
+  var results=[];
+  for(var k=0;k<qs.length;k++){prog.textContent="校正中… "+(k+1)+"/"+qs.length+"（"+qs[k].id+"）";try{var fixed=await proofreadQuestion(qs[k],qIssues(qs[k]).join("、"));results.push({orig:qs[k],fixed:fixed});}catch(e){results.push({orig:qs[k],err:e.message});}}
+  renderBatchResults(host,results);
+}
+function renderBatchResults(host,results){
+  host.innerHTML="";
+  var wrap=el("div","card");wrap.style.marginTop="8px";
+  wrap.appendChild(el("h3",null,"校正結果（"+results.length+"件）｜反映する項目を選んでください"));
+  var boxes=[];
+  results.forEach(function(rz){
+    var it=el("div","genitem");
+    if(rz.err){it.appendChild(el("div","small muted","ID:"+rz.orig.id+" — 校正失敗: "+escapeHtml(rz.err)));wrap.appendChild(it);return;}
+    var lab=el("label","row");lab.style.alignItems="center";lab.style.cursor="pointer";
+    var cb=el("input");cb.type="checkbox";cb.checked=true;cb.style.marginRight="6px";
+    lab.appendChild(cb);lab.appendChild(el("span","small muted","ID:"+rz.orig.id+" を反映"));it.appendChild(lab);
+    it.appendChild(el("div","small muted","【校正前】"));it.appendChild(el("div",null,fmtQ(rz.orig)));
+    it.appendChild(el("div","small muted","【校正後】"));it.appendChild(el("div",null,fmtQ(rz.fixed)));
+    boxes.push({cb:cb,orig:rz.orig,fixed:rz.fixed});wrap.appendChild(it);
+  });
+  var row=el("div","row");row.style.marginTop="8px";
+  var ap=el("button","btn","✅ チェックした項目を反映");
+  ap.onclick=function(){var n=0;boxes.forEach(function(b){if(b.cb.checked){applyFix(b.orig,b.fixed);n++;}});toast(n+"件を反映しました");renderManage();};
+  var cc=el("button","btn sec","キャンセル");cc.onclick=function(){host.innerHTML="";};
+  if(boxes.length)row.appendChild(ap);row.appendChild(cc);wrap.appendChild(row);host.appendChild(wrap);typeset(wrap);
+}
 function qIssues(q){
   var out=[];
   if(q.type==="fill"){
@@ -1722,9 +1762,23 @@ function renderManage(){
     var ic=el("div","card");
     ic.appendChild(el("h2",null,"⚠ 不備の可能性がある問題（"+issueList.length+"件）"));
     ic.appendChild(el("p","small muted","空欄の後に答えがある／空欄数と解答数の不一致／選択肢の重複などを自動検出。編集またはAI校正で直せます。"));
+    var selIds=new Set(), itemCbs=[], selAllCb=null, bcnt=null, batchHost=el("div");
+    function updCnt(){if(bcnt)bcnt.textContent=selIds.size?"（"+selIds.size+"問選択中）":"（チェックで複数選択）";}
+    if(settings.apiKey){
+      var bbar=el("div","row");bbar.style.marginBottom="8px";bbar.style.alignItems="center";
+      var selAll=el("label","small muted");selAll.style.cursor="pointer";selAllCb=el("input");selAllCb.type="checkbox";selAllCb.style.marginRight="4px";selAll.appendChild(selAllCb);selAll.appendChild(document.createTextNode("すべて選択"));
+      var bbtn=el("button","btn","🔧 選択をまとめて校正");
+      bcnt=el("span","small muted");bcnt.style.marginLeft="6px";updCnt();
+      selAllCb.onchange=function(){selIds.clear();itemCbs.forEach(function(o){o.cb.checked=selAllCb.checked;if(selAllCb.checked)selIds.add(o.id);});updCnt();};
+      bbtn.onclick=function(){var qs=issueList.filter(function(q){return selIds.has(q.id);});if(!qs.length){toast("校正する問題にチェックを入れてください");return;}batchProofread(qs,batchHost);};
+      bbar.appendChild(selAll);bbar.appendChild(bbtn);bbar.appendChild(bcnt);ic.appendChild(bbar);ic.appendChild(batchHost);
+    }
     issueList.slice(0,100).forEach(function(q){
       var it=el("div","genitem");
-      it.appendChild(el("div","small muted","ID:"+q.id+" ｜ "+TYPE[q.type]+" ｜ "+(!q.author?"内蔵":(q.author==="ai"?"AI生成":"個人作成"))));
+      var top=el("div","row");top.style.alignItems="center";
+      if(settings.apiKey){var cb=el("input");cb.type="checkbox";cb.style.marginRight="6px";cb.onchange=function(){if(cb.checked)selIds.add(q.id);else{selIds.delete(q.id);if(selAllCb)selAllCb.checked=false;}updCnt();};itemCbs.push({id:q.id,cb:cb});top.appendChild(cb);}
+      top.appendChild(el("div","small muted","ID:"+q.id+" ｜ "+TYPE[q.type]+" ｜ "+(!q.author?"内蔵":(q.author==="ai"?"AI生成":"個人作成"))));
+      it.appendChild(top);
       it.appendChild(el("div",null,escapeHtml(q.question.slice(0,80))));
       var iss=el("div","small muted","⚠ "+qIssues(q).join(" / "));iss.style.color="var(--warn)";it.appendChild(iss);
       var fxbox=el("div");
@@ -1972,7 +2026,7 @@ function renderCost(){
   if(!usage.length)rc.appendChild(el("p","muted","まだAPI呼び出しはありません。AI生成や解説を使うと記録されます。"));
   else{var rt=el("table");rt.innerHTML="<tr><th>日時</th><th>用途</th><th>モデル</th><th>入力</th><th>出力</th><th>コスト</th></tr>";
     usage.slice(-30).reverse().forEach(function(u){var dt=new Date(u.t);var ds=(dt.getMonth()+1)+"/"+dt.getDate()+" "+String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0");
-      rt.appendChild(el("tr",null,"<td>"+ds+"</td><td>"+(PL[u.purpose]||u.purpose)+"</td><td class='small'>"+escapeHtml((u.model||"").replace("claude-",""))+"</td><td>"+u.inTok+"</td><td>"+u.outTok+"</td><td>$"+u.cost.toFixed(4)+"</td>"));});
+      rt.appendChild(el("tr",null,"<td>"+ds+"</td><td>"+(PL[u.purpose]||u.purpose)+"</td><td class='small'>"+escapeHtml((u.model||"").replace("claude-",""))+"</td><td>"+u.inTok+"</td><td>"+u.outTok+"</td><td>$"+u.cost.toFixed(4)+" / ¥"+(u.cost*jpy).toFixed(1)+"</td>"));});
     rc.appendChild(rt);}
   m.appendChild(rc);
   var sc=el("div","card");sc.appendChild(el("h2",null,"設定"));
