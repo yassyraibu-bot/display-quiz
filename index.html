@@ -594,6 +594,20 @@ let history=histByU[currentUser]||(histByU[currentUser]=[]);
 let collections=collByU[currentUser]||(collByU[currentUser]=[]);
 let notes=notesByU[currentUser]||(notesByU[currentUser]={});
 
+function fmtQ(q){var s=escapeHtml(q.question);if(q.type==="mc"&&q.choices)s+="<br>選択肢: "+q.choices.map(function(c,j){return (j===q.answer?"✅":"")+escapeHtml(c);}).join(" / ");if(q.type==="fill"&&q.answer)s+="<br>解答: "+((Array.isArray(q.answer[0])?q.answer.map(function(a){return "["+a.join("/")+"]";}):q.answer).map(escapeHtml).join(" , "));if(q.type==="reason"&&q.modelAnswer)s+="<br>模範: "+escapeHtml(String(q.modelAnswer).slice(0,140));if(q.explanation)s+="<br>解説: "+escapeHtml(String(q.explanation).slice(0,140));return s;}
+function showFixCompare(host,orig,fixed){
+  host.innerHTML="";
+  var pv=el("div","card");pv.style.marginTop="8px";
+  pv.appendChild(el("div","small muted","【校正前】"));
+  pv.appendChild(el("div",null,fmtQ(orig)));
+  pv.appendChild(el("div","small muted","【校正後】"));
+  pv.appendChild(el("div",null,fmtQ(fixed)));
+  var row=el("div","row");row.style.marginTop="8px";
+  var ap=el("button","btn","✅ 反映する");ap.onclick=function(){applyFix(orig,fixed);toast("反映しました");renderManage();};
+  var ed=el("button","btn sec","✏ 手動で微調整");ed.onclick=function(){applyFix(orig,fixed);var nid=userQ.some(function(u){return u.id===orig.id;})?orig.id:(userQ.length?userQ[userQ.length-1].id:orig.id);toast("反映しました。続けて手動編集できます");editUserQuestion(nid);};
+  var cc=el("button","btn sec","キャンセル");cc.onclick=function(){host.innerHTML="";};
+  row.appendChild(ap);row.appendChild(ed);row.appendChild(cc);pv.appendChild(row);host.appendChild(pv);typeset(pv);
+}
 function qIssues(q){
   var out=[];
   if(q.type==="fill"){
@@ -1713,10 +1727,11 @@ function renderManage(){
       it.appendChild(el("div","small muted","ID:"+q.id+" ｜ "+TYPE[q.type]+" ｜ "+(!q.author?"内蔵":(q.author==="ai"?"AI生成":"個人作成"))));
       it.appendChild(el("div",null,escapeHtml(q.question.slice(0,80))));
       var iss=el("div","small muted","⚠ "+qIssues(q).join(" / "));iss.style.color="var(--warn)";it.appendChild(iss);
+      var fxbox=el("div");
       var r=el("div","row");r.style.marginTop="6px";
-      if(userQ.some(function(u){return u.id===q.id;})){var edb=el("button","btn sec","✏ 編集");edb.onclick=(function(id){return function(){editUserQuestion(id);};})(q.id);r.appendChild(edb);}
-      if(settings.apiKey){var fxb=el("button","btn ghost","🔧 AIで校正");fxb.onclick=(function(qq,btn){return async function(){var pr=buildFixPrompt(qq,qIssues(qq).join("、"));btn.disabled=true;btn.textContent="見積り中…";var inTok;try{inTok=await countTokens(pr);}catch(e){inTok=Math.ceil(pr.length/3);}btn.disabled=false;btn.textContent="🔧 AIで校正";var ok=await confirmFixCost(settings.model,inTok,2048,settings.jpyRate||155);if(!ok)return;btn.disabled=true;btn.textContent="校正中…";try{var fixed=await proofreadQuestion(qq,qIssues(qq).join("、"));applyFix(qq,fixed);toast("校正して反映しました");renderManage();}catch(e){alert("校正失敗: "+e.message);btn.disabled=false;btn.textContent="🔧 AIで校正";}};})(q,fxb);r.appendChild(fxb);}
-      it.appendChild(r);ic.appendChild(it);
+      if(userQ.some(function(u){return u.id===q.id;})){var edb=el("button","btn sec","✏ 手動で修正");edb.onclick=(function(id){return function(){editUserQuestion(id);};})(q.id);r.appendChild(edb);}
+      if(settings.apiKey){var fxb=el("button","btn ghost","🔧 AIで校正");fxb.onclick=(function(qq,btn,host){return async function(){var pr=buildFixPrompt(qq,qIssues(qq).join("、"));btn.disabled=true;btn.textContent="見積り中…";var inTok;try{inTok=await countTokens(pr);}catch(e){inTok=Math.ceil(pr.length/3);}btn.disabled=false;btn.textContent="🔧 AIで校正";var ok=await confirmFixCost(settings.model,inTok,2048,settings.jpyRate||155);if(!ok)return;btn.disabled=true;btn.textContent="校正中…";try{var fixed=await proofreadQuestion(qq,qIssues(qq).join("、"));showFixCompare(host,qq,fixed);}catch(e){alert("校正失敗: "+e.message);}btn.disabled=false;btn.textContent="🔧 AIで校正";};})(q,fxb,fxbox);r.appendChild(fxb);}
+      it.appendChild(r);it.appendChild(fxbox);ic.appendChild(it);
     });
     m.appendChild(ic);
   }
