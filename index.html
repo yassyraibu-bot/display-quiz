@@ -140,12 +140,13 @@ const TYPE={mc:"4択",fill:"穴埋め",reason:"記述(理由)"};
 const LS_PROG="dq_progress_v1", LS_USERQ="dq_userq_v1", LS_SET="dq_settings_v1", LS_HIST="dq_history_v1", LS_HIDDEN="dq_hidden_v1";
 const LS_USAGE="dq_usage_v1";
 const LS_FEEDBACK="dq_feedback_v1";
+const LS_AIEXP="dq_aiexp_v1";
 const LS_COLL="dq_collections_v1";
 const LS_NOTES="dq_notes_v1";
 const LS_USERS="dq_users_v1", LS_CURUSER="dq_curuser_v1";
 const LS_PROGBYU="dq_progbyu_v1", LS_HISTBYU="dq_histbyu_v1", LS_COLLBYU="dq_collbyu_v1", LS_NOTESBYU="dq_notesbyu_v1";
 const LS_SELECTION="dq_selection_v1", LS_QFB="dq_qfeedback_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU]);
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -570,6 +571,7 @@ let usage=store.get(LS_USAGE,[]);
 let feedback=store.get(LS_FEEDBACK,[]);
 let selection=store.get(LS_SELECTION,[]);
 let qfeedback=store.get(LS_QFB,[]);
+let aiExp=store.get(LS_AIEXP,{});
 let users=store.get(LS_USERS,[]);
 let currentUser=localStorage.getItem(LS_CURUSER)||"";
 let progByU=store.get(LS_PROGBYU,{});
@@ -613,6 +615,7 @@ function saveHistory(){histByU[currentUser]=history;store.set(LS_HISTBYU,histByU
 function saveUsers(){store.set(LS_USERS,users);}
 function saveSelection(){store.set(LS_SELECTION,selection);}
 function saveQFB(){store.set(LS_QFB,qfeedback);}
+function saveAiExp(){store.set(LS_AIEXP,aiExp);}
 function currentUserObj(){return users.filter(function(u){return u.id===currentUser;})[0]||{name:"?",leader:false};}
 function isLeader(){return !!currentUserObj().leader;}
 function switchUser(uid){saveProgress();saveHistory();saveCollections();saveNotes();currentUser=uid;localStorage.setItem(LS_CURUSER,uid);progress=progByU[uid]||(progByU[uid]={});history=histByU[uid]||(histByU[uid]=[]);collections=collByU[uid]||(collByU[uid]=[]);notes=notesByU[uid]||(notesByU[uid]={});render(_view||"home");}
@@ -651,7 +654,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -699,6 +702,7 @@ function mergeCloud(cloud){
   (cloud.users||[]).forEach(function(u){if(u&&u.id&&!umap[u.id]){users.push(u);umap[u.id]=u;}});
   var ssel=new Set(selection||[]);(cloud.selection||[]).forEach(function(id){ssel.add(id);});selection=[...ssel];
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
+  var cae=cloud.aiExp||{};Object.keys(cae).forEach(function(k){if(!aiExp[k])aiExp[k]=cae[k];});
   function mProg(lp,cpp){lp=lp||{};Object.keys(cpp||{}).forEach(function(id){var a=lp[id],b=cpp[id];if(!a||(((b&&b.seen)||0)>((a&&a.seen)||0)))lp[id]=b;});return lp;}
   function mHist(lh,ch){lh=lh||[];var s=new Set(lh.map(function(h){return h.t;}));(ch||[]).forEach(function(h){if(h&&!s.has(h.t)){lh.push(h);s.add(h.t);}});lh.sort(function(a,b){return a.t-b.t;});if(lh.length>300)lh=lh.slice(-300);return lh;}
   function mColl(lc,cc){lc=lc||[];var m={};lc.forEach(function(c){m[c.id]=c;});(cc||[]).forEach(function(c){if(!c||!c.id)return;if(!m[c.id]){lc.push(c);m[c.id]=c;}else{var ex=m[c.id];var cs=new Set(ex.qids);(c.qids||[]).forEach(function(x){if(!cs.has(x)){ex.qids.push(x);cs.add(x);}});}});return lc;}
@@ -728,6 +732,7 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_HISTBYU,JSON.stringify(histByU));
   localStorage.setItem(LS_COLLBYU,JSON.stringify(collByU));
   localStorage.setItem(LS_NOTESBYU,JSON.stringify(notesByU));
+  localStorage.setItem(LS_AIEXP,JSON.stringify(aiExp));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
 function setUserBadge(){var e=$("#userBadge");if(e){e.textContent="👤 "+currentUserObj().name+" ▼";e.onclick=openUserSwitcher;}}
@@ -979,6 +984,7 @@ function showQuestion(){
   memoBtn.onclick=function(){if(memoBox.innerHTML){memoBox.innerHTML="";return;}favBox.innerHTML="";qfbBox.innerHTML="";renderMemoPanel(q,memoBox,memoBtn);};
   qfbBtn.onclick=function(){if(qfbBox.innerHTML){qfbBox.innerHTML="";return;}favBox.innerHTML="";memoBox.innerHTML="";renderQfbPanel(q,qfbBox,qfbBtn);};
   if(q.figure)card.appendChild(el("div","figbox",q.figure));
+  if(q.links&&q.links.length){var lkd=el("div","small muted");lkd.style.margin="0 0 8px";lkd.innerHTML="📎 関連資料: "+q.links.map(function(x){return `<a href="${escapeHtml(x.url)}" target="_blank">${escapeHtml(x.label||x.url)}</a>`;}).join(" ｜ ");card.appendChild(lkd);}
   const qtext=q.type==="fill"?escapeHtml(q.question).replace(/_{2,}/g,'<span class="blank">［　　］</span>'):escapeHtml(q.question);
   card.appendChild(el("div",null,`<div style="font-size:15px;margin-bottom:10px">${qtext}</div>`));
   const area=el("div");card.appendChild(area);
@@ -1000,6 +1006,7 @@ function afterAnswer(q,correct,area){
   const exp=el("div","card");exp.style.marginTop="14px";
   exp.appendChild(el("h3",null,"解説"));
   exp.appendChild(el("div","explain",escapeHtml(q.explanation||"（解説未登録）")));
+  if(aiExp[q.id]){var aeBtn=el("button","btn sec","🤖 詳細解説を見る（保存済み・無料）");aeBtn.style.marginTop="8px";var aeBox=el("div");aeBtn.onclick=function(){if(aeBox.innerHTML){aeBox.innerHTML="";return;}var b=el("div","feedback ok");b.appendChild(el("div","explain",escapeHtml(aiExp[q.id])));aeBox.appendChild(b);typeset(aeBox);};exp.appendChild(aeBtn);exp.appendChild(aeBox);}
   const aiRow=el("div","row");aiRow.style.marginTop="12px";
   const aiBtn=el("button","btn ghost","🤖 Claudeでさらに詳しく");
   aiBtn.onclick=()=>askClaude(q,exp,aiBtn);
@@ -1228,6 +1235,7 @@ async function askClaude(q,container,btn){
       const text=await callClaude(prompt,1024,"explain");
       const box=el("div","feedback ok");box.style.marginTop="12px";
       box.innerHTML="<b>🤖 Claudeの解説</b><div class='explain' style='margin-top:8px'>"+escapeHtml(text)+"</div>";
+      var sbtn=el("button","btn sec",aiExp[q.id]?"💾 保存（上書き）":"💾 この解説を保存");sbtn.style.marginTop="8px";sbtn.onclick=function(){aiExp[q.id]=text;saveAiExp();sbtn.textContent="✓ 保存しました";toast("詳細解説を保存しました（次回から無料で表示）");};box.appendChild(sbtn);
       container.appendChild(box);typeset(box);
       btn.textContent="🤖 もう一度生成";btn.disabled=false;
     }catch(err){
@@ -1468,29 +1476,54 @@ function renderGen(){
 }
 
 /* ====================== 問題フォーム（追加・編集 共用） ====================== */
+function fillSample(q){
+  var t=q("#a_type").value;
+  q("#a_cat").value="IGZO, デバイス物理";
+  if(t==="mc"){
+    q("#a_q").value="IGZOがa-Si:Hより高い電子移動度を示す主な理由は？";
+    if(q("#a_choices"))q("#a_choices").value="伝導帯が金属ns軌道（球対称）で構成され乱れに強いから\n正孔移動度が高いから\nバンドギャップが小さいから\n結晶粒界が多いから";
+    q("#a_exp").value="伝導帯下端がInなどのns軌道（球対称で広がりが大きい）で構成され、アモルファスでも軌道の重なりが保たれるため移動度が高い。";
+  } else if(t==="fill"){
+    q("#a_q").value="a-Siをレーザ照射で多結晶化するLTPSの代表的手法を ___ という。";
+    if(q("#a_ans"))q("#a_ans").value="エキシマレーザアニール, ELA";
+    q("#a_exp").value="ELA=Excimer Laser Annealing。パルス紫外レーザでa-Siを瞬間溶融・再結晶化する。";
+  } else {
+    q("#a_q").value="IGZO-TFTで酸素雰囲気のアニールを行う理由を説明せよ。";
+    if(q("#a_model"))q("#a_model").value="過剰な酸素欠損を補償してキャリア濃度を適正化し、しきい値を制御するため。界面・バルクの欠陥準位も減らし信頼性を改善する。";
+    if(q("#a_kp"))q("#a_kp").value="酸素欠損の補償, しきい値制御, 欠陥準位低減";
+    q("#a_exp").value="酸素アニールはVoを埋めてキャリアを減らし過剰導電化を防ぐ。S値・ヒステリシス・NBIS耐性も改善。";
+  }
+  toast("記入例を入れました。内容を書き換えてください");
+}
 function questionFormCard(existing,onSave,saveLabel){
   const e=existing||{};
   const card=el("div","card");
   card.appendChild(el("h2",null,existing?"✏ 問題を編集":"問題を追加（手動）"));
   card.innerHTML+=`
+    <p class="small muted">迷ったら「📝 記入例を入れる」を押すと、その形式の見本が入ります。それを書き換えて保存してください。</p>
     <label>形式</label>
-    <select id="a_type"><option value="mc">4択</option><option value="fill">穴埋め（本文に ___ を書く）</option><option value="reason">記述（理由説明）</option></select>
+    <select id="a_type"><option value="mc">4択</option><option value="fill">穴埋め</option><option value="reason">記述（理由説明）</option></select>
     <label>難易度</label>
     <select id="a_diff"><option value="1">易</option><option value="2">標準</option><option value="3">難</option></select>
-    <label>知識種別（あなたが作成する問題のカテゴリ）</label>
+    <label>知識種別（あなたが作る問題の分類）</label>
     <select id="a_know"><option value="general">一般知識</option><option value="knowhow">ノウハウ</option><option value="both">一般知識・ノウハウ両方</option></select>
-    <label>カテゴリ（カンマ区切り 例: IGZO, プロセス）</label>
-    <input id="a_cat" type="text" placeholder="IGZO, デバイス物理">
-    <label>問題文（数式は $...$ で記述可）</label>
-    <textarea id="a_q" placeholder="穴埋めの場合は空欄を ___（アンダースコア3つ以上）で記入"></textarea>
+    <label>カテゴリ（分野。カンマ区切りで複数可）</label>
+    <input id="a_cat" type="text" placeholder="例: IGZO, デバイス物理">
+    <label>問題文</label>
+    <textarea id="a_q" placeholder="例: IGZOがa-Si:Hより高い電子移動度を示す主な理由は？（数式は $...$ で書けます）"></textarea>
     <div id="a_dyn"></div>
-    <label>図（任意・テンプレからワンクリック挿入可）</label>
+    <label>図（任意）</label>
+    <p class="small muted">下のテンプレ挿入／画像URL貼り付け／枠内に画像をドラッグ&ドロップ、のいずれでも追加できます。SVG・HTMLの直接入力も可。</p>
     <div id="a_tpl" class="row" style="margin:4px 0"></div>
-    <textarea id="a_fig" placeholder="<svg ...>...</svg>（空欄でOK）"></textarea>
+    <div class="row" style="margin:4px 0"><input id="a_imgurl" type="text" placeholder="画像URL（https://...）" style="flex:1"><button class="btn sec" id="a_imgadd" type="button">画像URLを挿入</button></div>
+    <textarea id="a_fig" placeholder="ここに画像をドラッグ&ドロップ、または上で挿入（空欄でOK）"></textarea>
     <div id="a_figprev"></div>
+    <label>関連資料リンク（任意・Excel/PDF/外部文献などのURL）</label>
+    <div class="row" style="margin:4px 0"><input id="a_linklabel" type="text" placeholder="表示名（例: 詳細PDF）" style="flex:1"><input id="a_linkurl" type="text" placeholder="https://..." style="flex:2"><button class="btn sec" id="a_linkadd" type="button">＋追加</button></div>
+    <div id="a_linklist"></div>
     <label>解説</label>
-    <textarea id="a_exp" placeholder="解説（任意・$...$で数式可）"></textarea>
-    <div class="row" style="margin-top:14px"><button class="btn" id="a_save">${escapeHtml(saveLabel||"＋ 追加して保存")}</button><span id="a_cancel"></span></div>`;
+    <textarea id="a_exp" placeholder="例: 伝導帯がInのns軌道（球対称）で構成され、結合角の乱れに強いため。（数式は $...$ 可）"></textarea>
+    <div class="row" style="margin-top:14px"><button class="btn sec" id="a_sample" type="button">📝 記入例を入れる</button><button class="btn" id="a_save">${escapeHtml(saveLabel||"＋ 追加して保存")}</button><span id="a_cancel"></span></div>`;
   const q=card.querySelector.bind(card);
   q("#a_type").value=e.type||"mc";
   q("#a_diff").value=e.difficulty||2;
@@ -1506,17 +1539,27 @@ function questionFormCard(existing,onSave,saveLabel){
   Object.keys(FIG_TEMPLATES).forEach(name=>{const b=el("button","chip",escapeHtml(name));b.type="button";
     b.onclick=()=>{q("#a_fig").value=FIG_TEMPLATES[name];updFigPrev();toast("図テンプレを挿入");};tpl.appendChild(b);});
   const clr=el("button","chip","図をクリア");clr.type="button";clr.onclick=()=>{q("#a_fig").value="";updFigPrev();};tpl.appendChild(clr);
+  var qlinks=(e.links||[]).slice();
+  function drawLinks(){var lh=q("#a_linklist");lh.innerHTML="";qlinks.forEach(function(lk,idx){var rw=el("div","row");rw.style.cssText="align-items:center;gap:8px;margin:3px 0";var a=el("a");a.href=lk.url;a.target="_blank";a.textContent="📎 "+(lk.label||lk.url);a.style.flex="1";var xb=el("button","btn sec","削除");xb.type="button";xb.style.padding="2px 8px";xb.onclick=function(){qlinks.splice(idx,1);drawLinks();};rw.appendChild(a);rw.appendChild(xb);lh.appendChild(rw);});}
+  drawLinks();
+  q("#a_linkadd").onclick=function(){var u=q("#a_linkurl").value.trim();if(!u){toast("URLを入力してください");return;}if(!/^https?:\/\//.test(u)){toast("URLは http(s):// で始めてください");return;}qlinks.push({label:q("#a_linklabel").value.trim()||u,url:u});q("#a_linklabel").value="";q("#a_linkurl").value="";drawLinks();};
+  q("#a_imgadd").onclick=function(){var u=q("#a_imgurl").value.trim();if(!u){toast("画像URLを入力してください");return;}q("#a_fig").value=`<img src="${u}" style="max-width:100%">`;updFigPrev();q("#a_imgurl").value="";toast("画像を挿入しました");};
+  var fa=q("#a_fig");
+  fa.addEventListener("dragover",function(ev){ev.preventDefault();fa.style.borderColor="var(--accent)";});
+  fa.addEventListener("dragleave",function(){fa.style.borderColor="";});
+  fa.addEventListener("drop",function(ev){ev.preventDefault();fa.style.borderColor="";var dt=ev.dataTransfer;var f=dt&&dt.files&&dt.files[0];if(!f){var tx=dt?dt.getData("text"):"";if(tx&&/^https?:/.test(tx)){q("#a_fig").value=`<img src="${tx}" style="max-width:100%">`;updFigPrev();}return;}if(!/^image\//.test(f.type)){toast("画像ファイルをドロップしてください");return;}if(f.size>1500000)toast("画像が大きめです（1.5MB以下推奨）");var rd=new FileReader();rd.onload=function(){q("#a_fig").value=`<img src="${rd.result}" style="max-width:100%">`;updFigPrev();toast("画像を追加しました");};rd.readAsDataURL(f);});
+  q("#a_sample").onclick=function(){fillSample(q);};
   const dyn=q("#a_dyn");
   function dynFields(){
     const t=q("#a_type").value;
-    if(t==="mc"){dyn.innerHTML=`<label>選択肢（1行に1つ。1行目を正解にしてください）</label>
-      <textarea id="a_choices" placeholder="正解の選択肢（1行目）&#10;誤答1&#10;誤答2&#10;誤答3"></textarea>`;
+    if(t==="mc"){dyn.innerHTML=`<label>選択肢</label><p class="small muted">1行に1つ。<b>1行目を正解</b>にしてください（出題時に自動でシャッフルされます）。4択なら4行。</p>
+      <textarea id="a_choices" placeholder="正解の選択肢（1行目に書く）&#10;誤答1&#10;誤答2&#10;誤答3"></textarea>`;
       if(e.type==="mc"&&e.choices)q("#a_choices").value=[e.choices[e.answer]].concat(e.choices.filter((_,i)=>i!==e.answer)).join("\n");}
-    else if(t==="fill"){dyn.innerHTML=`<label>許容解答（カンマ区切り。空欄が複数ある場合は1行に1空欄ずつ）</label>
+    else if(t==="fill"){dyn.innerHTML=`<label>許容解答</label><p class="small muted">問題文の空欄は <b>___</b>（半角アンダースコア3つ）で書きます。解答は<b>カンマ区切り</b>で別表記も許容（例: エキシマレーザアニール, ELA）。空欄が複数あるときは<b>1行に1空欄分</b>ずつ。</p>
       <textarea id="a_ans" placeholder="エキシマレーザアニール, ELA"></textarea>`;
       if(e.type==="fill"&&e.answer){q("#a_ans").value=Array.isArray(e.answer[0])?e.answer.map(function(a){return a.join(", ");}).join("\n"):e.answer.join(", ");}}
-    else{dyn.innerHTML=`<label>模範解答</label><textarea id="a_model" placeholder="模範解答（理由）"></textarea>
-      <label>採点ポイント（カンマ区切り・任意）</label><input id="a_kp" type="text" placeholder="要点1, 要点2">`;
+    else{dyn.innerHTML=`<label>模範解答</label><p class="small muted">理由・説明の模範解答（解答者は見比べて自己採点します）。</p><textarea id="a_model" placeholder="例: 伝導帯が金属ns軌道で構成され乱れに強いため…"></textarea>
+      <label>採点ポイント（任意・カンマ区切り）</label><p class="small muted">押さえてほしい要点。自己採点の目安として表示されます。</p><input id="a_kp" type="text" placeholder="ns軌道, 球対称, 乱れに強い">`;
       if(e.type==="reason"){q("#a_model").value=e.modelAnswer||"";q("#a_kp").value=(e.keyPoints||[]).join(", ");}}
   }
   q("#a_type").onchange=dynFields;dynFields();
@@ -1530,6 +1573,7 @@ function questionFormCard(existing,onSave,saveLabel){
       category:cat,question:qt,explanation:q("#a_exp").value.trim()};
     obj.author=(e&&e.author)?e.author:currentUser;obj.knowledgeType=q("#a_know")?q("#a_know").value:"general";
     const fig=q("#a_fig").value.trim();if(fig)obj.figure=fig;
+    if(qlinks&&qlinks.length)obj.links=qlinks;else if(e&&e.links)obj.links=e.links;
     if(t==="mc"){
       const lines=q("#a_choices").value.split("\n").map(s=>s.trim()).filter(Boolean);
       if(lines.length<2){toast("選択肢を2つ以上（正解+誤答）入力してください");return;}
