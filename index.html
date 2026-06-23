@@ -741,6 +741,13 @@ async function gistFetch(method,path,body){
 }
 async function cloudPush(){
   if(!settings.sync||!settings.sync.token)throw new Error("トークン未設定");
+  if(settings.sync.gistId){
+    try{
+      const g0=await gistFetch("GET","/gists/"+settings.sync.gistId);
+      const f0=g0.files&&g0.files[GIST_FILE];
+      if(f0){var c0=f0.content;if(f0.truncated&&f0.raw_url){c0=await(await fetch(f0.raw_url)).text();}try{mergeCloud(JSON.parse(c0));}catch(e){}}
+    }catch(e){}
+  }
   const content=JSON.stringify(syncPayload());
   if(!settings.sync.gistId){
     const g=await gistFetch("POST","/gists",{description:"ディスプレイ半導体問題集データ",public:false,files:{[GIST_FILE]:{content:content}}});
@@ -767,7 +774,7 @@ async function cloudPull(){
 function mergeCloud(cloud){
   if(!cloud||typeof cloud!=="object")return;
   var qmap={};(userQ||[]).forEach(function(q){qmap[q.id]=q;});
-  (cloud.userQ||[]).forEach(function(q){if(q&&q.id&&!qmap[q.id])qmap[q.id]=q;});
+  (cloud.userQ||[]).forEach(function(q){if(!q||!q.id)return;var ex=qmap[q.id];if(!ex||((q.updatedAt||0)>(ex.updatedAt||0)))qmap[q.id]=q;});
   userQ=Object.values(qmap);
   userQ=sanitizeQuestions(userQ);
   (cloud.hidden||[]).forEach(function(id){hidden.add(id);});
@@ -1282,6 +1289,7 @@ function applyFix(orig,fixed){
   var idx=userQ.findIndex(function(u){return u.id===orig.id;});
   if(idx>=0){ fixed.id=orig.id; userQ[idx]=fixed; }
   else { fixed.id="u"+Date.now(); userQ.push(fixed); hidden.add(orig.id); saveHidden(); }
+  fixed.updatedAt=Date.now();
   store.set(LS_USERQ,userQ);
 }
 function buildPrompt(q){
@@ -1676,7 +1684,7 @@ function questionFormCard(existing,onSave,saveLabel){
 /* ====================== 問題追加（手動） ====================== */
 function renderAdd(){
   const m=$("#main");m.innerHTML="";
-  m.appendChild(questionFormCard(null,obj=>{userQ.push(obj);store.set(LS_USERQ,userQ);toast("追加しました（"+TYPE[obj.type]+"）");renderAdd();},"＋ 追加して保存"));
+  m.appendChild(questionFormCard(null,obj=>{obj.updatedAt=Date.now();userQ.push(obj);store.set(LS_USERQ,userQ);toast("追加しました（"+TYPE[obj.type]+"）");renderAdd();},"＋ 追加して保存"));
   const io=el("div","card");
   io.appendChild(el("h2",null,"バックアップ / 一括追加（JSON）"));
   io.appendChild(el("p","small muted",`追加済みのユーザー問題: <b style="color:var(--txt)">${userQ.length}</b> 問 ／ 全 ${allQuestions().length} 問`));
@@ -1834,7 +1842,7 @@ function renderManage(){
 function editUserQuestion(id){
   const ex=userQ.find(u=>u.id===id);if(!ex)return;
   const m=$("#main");m.innerHTML="";
-  const card=questionFormCard(ex,obj=>{const i=userQ.findIndex(u=>u.id===id);if(i>=0)userQ[i]=obj;store.set(LS_USERQ,userQ);toast("更新しました");setNav("manage");renderManage();},"💾 変更を保存");
+  const card=questionFormCard(ex,obj=>{const i=userQ.findIndex(u=>u.id===id);if(i>=0)userQ[i]=obj;obj.updatedAt=Date.now();store.set(LS_USERQ,userQ);toast("更新しました");setNav("manage");renderManage();},"💾 変更を保存");
   const cb=el("button","btn sec","キャンセル");cb.onclick=()=>{setNav("manage");renderManage();};
   card.querySelector("#a_cancel").appendChild(cb);
   m.appendChild(card);
