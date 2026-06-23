@@ -146,7 +146,8 @@ const LS_NOTES="dq_notes_v1";
 const LS_USERS="dq_users_v1", LS_CURUSER="dq_curuser_v1";
 const LS_PROGBYU="dq_progbyu_v1", LS_HISTBYU="dq_histbyu_v1", LS_COLLBYU="dq_collbyu_v1", LS_NOTESBYU="dq_notesbyu_v1";
 const LS_SELECTION="dq_selection_v1", LS_QFB="dq_qfeedback_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU]);
+const LS_ISSUEOK="dq_issueok_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -572,6 +573,7 @@ let feedback=store.get(LS_FEEDBACK,[]);
 let selection=store.get(LS_SELECTION,[]);
 let qfeedback=store.get(LS_QFB,[]);
 let aiExp=store.get(LS_AIEXP,{});
+let issueOK=new Set(store.get(LS_ISSUEOK,[]));
 let users=store.get(LS_USERS,[]);
 let currentUser=localStorage.getItem(LS_CURUSER)||"";
 let progByU=store.get(LS_PROGBYU,{});
@@ -603,8 +605,8 @@ function showFixCompare(host,orig,fixed){
   pv.appendChild(el("div","small muted","【校正後】"));
   pv.appendChild(el("div",null,fmtQ(fixed)));
   var row=el("div","row");row.style.marginTop="8px";
-  var ap=el("button","btn","✅ 反映する");ap.onclick=function(){applyFix(orig,fixed);toast("反映しました");renderManage();};
-  var ed=el("button","btn sec","✏ 手動で微調整");ed.onclick=function(){applyFix(orig,fixed);var nid=userQ.some(function(u){return u.id===orig.id;})?orig.id:(userQ.length?userQ[userQ.length-1].id:orig.id);toast("反映しました。続けて手動編集できます");editUserQuestion(nid);};
+  var ap=el("button","btn","✅ 反映する");ap.onclick=function(){applyFix(orig,fixed);issueOK.add(orig.id);if(fixed&&fixed.id)issueOK.add(fixed.id);saveIssueOK();toast("反映しました");renderManage();};
+  var ed=el("button","btn sec","✏ 手動で微調整");ed.onclick=function(){applyFix(orig,fixed);var nid=userQ.some(function(u){return u.id===orig.id;})?orig.id:(userQ.length?userQ[userQ.length-1].id:orig.id);issueOK.add(orig.id);issueOK.add(nid);saveIssueOK();toast("反映しました。続けて手動編集できます");editUserQuestion(nid);};
   var cc=el("button","btn sec","キャンセル");cc.onclick=function(){host.innerHTML="";};
   row.appendChild(ap);row.appendChild(ed);row.appendChild(cc);pv.appendChild(row);host.appendChild(pv);typeset(pv);
 }
@@ -644,7 +646,7 @@ function renderBatchResults(host,results){
   });
   var row=el("div","row");row.style.marginTop="8px";
   var ap=el("button","btn","✅ チェックした項目を反映");
-  ap.onclick=function(){var n=0;boxes.forEach(function(b){if(b.cb.checked){applyFix(b.orig,b.fixed);n++;}});toast(n+"件を反映しました");renderManage();};
+  ap.onclick=function(){var n=0;boxes.forEach(function(b){if(b.cb.checked){applyFix(b.orig,b.fixed);issueOK.add(b.orig.id);if(b.fixed&&b.fixed.id)issueOK.add(b.fixed.id);n++;}});if(n)saveIssueOK();toast(n+"件を反映しました");renderManage();};
   var cc=el("button","btn sec","キャンセル");cc.onclick=function(){host.innerHTML="";};
   if(boxes.length)row.appendChild(ap);row.appendChild(cc);wrap.appendChild(row);host.appendChild(wrap);typeset(wrap);
 }
@@ -690,6 +692,7 @@ function saveUsers(){store.set(LS_USERS,users);}
 function saveSelection(){store.set(LS_SELECTION,selection);}
 function saveQFB(){store.set(LS_QFB,qfeedback);}
 function saveAiExp(){store.set(LS_AIEXP,aiExp);}
+function saveIssueOK(){store.set(LS_ISSUEOK,[...issueOK]);}
 function currentUserObj(){return users.filter(function(u){return u.id===currentUser;})[0]||{name:"?",leader:false};}
 function isLeader(){return !!currentUserObj().leader;}
 function switchUser(uid){saveProgress();saveHistory();saveCollections();saveNotes();currentUser=uid;localStorage.setItem(LS_CURUSER,uid);progress=progByU[uid]||(progByU[uid]={});history=histByU[uid]||(histByU[uid]=[]);collections=collByU[uid]||(collByU[uid]=[]);notes=notesByU[uid]||(notesByU[uid]={});render(_view||"home");}
@@ -728,7 +731,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK]};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -777,6 +780,7 @@ function mergeCloud(cloud){
   var ssel=new Set(selection||[]);(cloud.selection||[]).forEach(function(id){ssel.add(id);});selection=[...ssel];
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
   var cae=cloud.aiExp||{};Object.keys(cae).forEach(function(k){if(!aiExp[k])aiExp[k]=cae[k];});
+  (cloud.issueOK||[]).forEach(function(id){issueOK.add(id);});
   function mProg(lp,cpp){lp=lp||{};Object.keys(cpp||{}).forEach(function(id){var a=lp[id],b=cpp[id];if(!a||(((b&&b.seen)||0)>((a&&a.seen)||0)))lp[id]=b;});return lp;}
   function mHist(lh,ch){lh=lh||[];var s=new Set(lh.map(function(h){return h.t;}));(ch||[]).forEach(function(h){if(h&&!s.has(h.t)){lh.push(h);s.add(h.t);}});lh.sort(function(a,b){return a.t-b.t;});if(lh.length>300)lh=lh.slice(-300);return lh;}
   function mColl(lc,cc){lc=lc||[];var m={};lc.forEach(function(c){m[c.id]=c;});(cc||[]).forEach(function(c){if(!c||!c.id)return;if(!m[c.id]){lc.push(c);m[c.id]=c;}else{var ex=m[c.id];var cs=new Set(ex.qids);(c.qids||[]).forEach(function(x){if(!cs.has(x)){ex.qids.push(x);cs.add(x);}});}});return lc;}
@@ -807,6 +811,7 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_COLLBYU,JSON.stringify(collByU));
   localStorage.setItem(LS_NOTESBYU,JSON.stringify(notesByU));
   localStorage.setItem(LS_AIEXP,JSON.stringify(aiExp));
+  localStorage.setItem(LS_ISSUEOK,JSON.stringify([...issueOK]));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
 function setUserBadge(){var e=$("#userBadge");if(e){e.textContent="👤 "+currentUserObj().name+" ▼";e.onclick=openUserSwitcher;}}
@@ -1757,11 +1762,15 @@ function renderManage(){
     });
     m.appendChild(qc);
   }
-  var issueList=allQuestions().filter(function(q){return qIssues(q).length>0;});
+  var issueList=allQuestions().filter(function(q){return qIssues(q).length>0&&!issueOK.has(q.id);});
   if(issueList.length){
     var ic=el("div","card");
     ic.appendChild(el("h2",null,"⚠ 不備の可能性がある問題（"+issueList.length+"件）"));
-    ic.appendChild(el("p","small muted","空欄の後に答えがある／空欄数と解答数の不一致／選択肢の重複などを自動検出。編集またはAI校正で直せます。"));
+    ic.appendChild(el("p","small muted","空欄の後に答えがある／空欄数と解答数の不一致／選択肢の重複などを自動検出。編集またはAI校正で直せます。「✓問題なし」を押すと一覧から除外できます。"));
+    var hbar=el("div","row");hbar.style.marginBottom="6px";
+    var rfb=el("button","btn sec","🔄 再チェック（更新）");rfb.onclick=function(){renderManage();};hbar.appendChild(rfb);
+    if(issueOK.size){var rsb=el("button","btn ghost","除外を解除（"+issueOK.size+"）");rsb.onclick=function(){if(confirm("「問題なし」で除外した "+issueOK.size+" 件を再び表示しますか？")){issueOK.clear();saveIssueOK();renderManage();}};hbar.appendChild(rsb);}
+    ic.appendChild(hbar);
     var selIds=new Set(), itemCbs=[], selAllCb=null, bcnt=null, batchHost=el("div");
     function updCnt(){if(bcnt)bcnt.textContent=selIds.size?"（"+selIds.size+"問選択中）":"（チェックで複数選択）";}
     if(settings.apiKey){
@@ -1785,6 +1794,7 @@ function renderManage(){
       var r=el("div","row");r.style.marginTop="6px";
       if(userQ.some(function(u){return u.id===q.id;})){var edb=el("button","btn sec","✏ 手動で修正");edb.onclick=(function(id){return function(){editUserQuestion(id);};})(q.id);r.appendChild(edb);}
       if(settings.apiKey){var fxb=el("button","btn ghost","🔧 AIで校正");fxb.onclick=(function(qq,btn,host){return async function(){var pr=buildFixPrompt(qq,qIssues(qq).join("、"));btn.disabled=true;btn.textContent="見積り中…";var inTok;try{inTok=await countTokens(pr);}catch(e){inTok=Math.ceil(pr.length/3);}btn.disabled=false;btn.textContent="🔧 AIで校正";var ok=await confirmFixCost(settings.model,inTok,2048,settings.jpyRate||155);if(!ok)return;btn.disabled=true;btn.textContent="校正中…";try{var fixed=await proofreadQuestion(qq,qIssues(qq).join("、"));showFixCompare(host,qq,fixed);}catch(e){alert("校正失敗: "+e.message);}btn.disabled=false;btn.textContent="🔧 AIで校正";};})(q,fxb,fxbox);r.appendChild(fxb);}
+      var okb=el("button","btn sec","✓ 問題なし");okb.onclick=(function(id){return function(){issueOK.add(id);saveIssueOK();toast("一覧から除外しました");renderManage();};})(q.id);r.appendChild(okb);
       it.appendChild(r);it.appendChild(fxbox);ic.appendChild(it);
     });
     m.appendChild(ic);
