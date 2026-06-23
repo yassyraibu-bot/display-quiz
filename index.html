@@ -147,7 +147,8 @@ const LS_USERS="dq_users_v1", LS_CURUSER="dq_curuser_v1";
 const LS_PROGBYU="dq_progbyu_v1", LS_HISTBYU="dq_histbyu_v1", LS_COLLBYU="dq_collbyu_v1", LS_NOTESBYU="dq_notesbyu_v1";
 const LS_SELECTION="dq_selection_v1", LS_QFB="dq_qfeedback_v1";
 const LS_ISSUEOK="dq_issueok_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK]);
+const LS_FBDONE="dq_fbdone_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -574,6 +575,7 @@ let selection=store.get(LS_SELECTION,[]);
 let qfeedback=store.get(LS_QFB,[]);
 let aiExp=store.get(LS_AIEXP,{});
 let issueOK=new Set(store.get(LS_ISSUEOK,[]));
+let fbDone=new Set(store.get(LS_FBDONE,[]));
 let users=store.get(LS_USERS,[]);
 let currentUser=localStorage.getItem(LS_CURUSER)||"";
 let progByU=store.get(LS_PROGBYU,{});
@@ -693,6 +695,7 @@ function saveSelection(){store.set(LS_SELECTION,selection);}
 function saveQFB(){store.set(LS_QFB,qfeedback);}
 function saveAiExp(){store.set(LS_AIEXP,aiExp);}
 function saveIssueOK(){store.set(LS_ISSUEOK,[...issueOK]);}
+function saveFbDone(){store.set(LS_FBDONE,[...fbDone]);}
 function currentUserObj(){return users.filter(function(u){return u.id===currentUser;})[0]||{name:"?",leader:false};}
 function isLeader(){return !!currentUserObj().leader;}
 function switchUser(uid){saveProgress();saveHistory();saveCollections();saveNotes();currentUser=uid;localStorage.setItem(LS_CURUSER,uid);progress=progByU[uid]||(progByU[uid]={});history=histByU[uid]||(histByU[uid]=[]);collections=collByU[uid]||(collByU[uid]=[]);notes=notesByU[uid]||(notesByU[uid]={});render(_view||"home");}
@@ -731,7 +734,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK]};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone]};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -788,6 +791,7 @@ function mergeCloud(cloud){
   if(cloud.srs)settings.srs=Object.assign({},settings.srs,cloud.srs);
   var cae=cloud.aiExp||{};Object.keys(cae).forEach(function(k){if(!aiExp[k])aiExp[k]=cae[k];});
   (cloud.issueOK||[]).forEach(function(id){issueOK.add(id);});
+  (cloud.fbDone||[]).forEach(function(id){fbDone.add(id);});
   function mProg(lp,cpp){lp=lp||{};Object.keys(cpp||{}).forEach(function(id){var a=lp[id],b=cpp[id];if(!a||(((b&&b.seen)||0)>((a&&a.seen)||0)))lp[id]=b;});return lp;}
   function mHist(lh,ch){lh=lh||[];var s=new Set(lh.map(function(h){return h.t;}));(ch||[]).forEach(function(h){if(h&&!s.has(h.t)){lh.push(h);s.add(h.t);}});lh.sort(function(a,b){return a.t-b.t;});if(lh.length>300)lh=lh.slice(-300);return lh;}
   function mColl(lc,cc){lc=lc||[];var m={};lc.forEach(function(c){m[c.id]=c;});(cc||[]).forEach(function(c){if(!c||!c.id)return;if(!m[c.id]){lc.push(c);m[c.id]=c;}else{var ex=m[c.id];var cs=new Set(ex.qids);(c.qids||[]).forEach(function(x){if(!cs.has(x)){ex.qids.push(x);cs.add(x);}});}});return lc;}
@@ -819,6 +823,7 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_NOTESBYU,JSON.stringify(notesByU));
   localStorage.setItem(LS_AIEXP,JSON.stringify(aiExp));
   localStorage.setItem(LS_ISSUEOK,JSON.stringify([...issueOK]));
+  localStorage.setItem(LS_FBDONE,JSON.stringify([...fbDone]));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
 function setUserBadge(){var e=$("#userBadge");if(e){e.textContent="👤 "+currentUserObj().name+" ▼";e.onclick=openUserSwitcher;}}
@@ -1706,10 +1711,11 @@ function renderAdd(){
 /* ====================== 問題の管理（編集・削除・非表示） ====================== */
 function renderManage(){
   const m=$("#main");m.innerHTML="";
-  if(feedback.length){
+  var fbList=feedback.filter(function(fb){return !fbDone.has(fb.t);});
+  if(fbList.length){
     var fbc=el("div","card");
-    fbc.appendChild(el("h2",null,"⚠ 報告された問題（"+feedback.length+"件）"));
-    feedback.slice().reverse().slice(0,50).forEach(function(fb){
+    fbc.appendChild(el("h2",null,"⚠ 報告された問題（"+fbList.length+"件）"));
+    fbList.slice().reverse().slice(0,50).forEach(function(fb){
       var it=el("div","genitem");
       it.appendChild(el("div","small muted",new Date(fb.t).toLocaleString()+" ｜ ID: "+(fb.qid||"-")+(fb.status==="fixed"?" ｜ ✓校正済":"")));
       it.appendChild(el("div",null,escapeHtml((fb.question||"").slice(0,80))));
@@ -1740,8 +1746,8 @@ function renderManage(){
             if(fixed.type==="fill"&&fixed.answer)pv.appendChild(el("div","small muted","解答: "+(Array.isArray(fixed.answer[0])?fixed.answer.map(function(a){return "["+a.join("/")+"]";}):fixed.answer).join(" , ")));
             if(fixed.explanation)pv.appendChild(el("div","small muted","解説: "+escapeHtml(String(fixed.explanation).slice(0,160))));
             var prow=el("div","row");prow.style.marginTop="8px";
-            var ap=el("button","btn","✅ 反映する");ap.onclick=function(){applyFix(qq,fixed);fbk.status="fixed";store.set(LS_FEEDBACK,feedback);toast("反映しました");renderManage();};
-            var apd=el("button","btn","✅ 反映して報告を削除");apd.onclick=function(){applyFix(qq,fixed);feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);toast("反映し報告を削除しました");renderManage();};
+            var ap=el("button","btn","✅ 反映して解決");ap.onclick=function(){applyFix(qq,fixed);fbk.status="fixed";fbDone.add(fbk.t);saveFbDone();store.set(LS_FEEDBACK,feedback);toast("反映して解決しました");renderManage();};
+            var apd=el("button","btn","✅ 反映して報告を削除");apd.onclick=function(){applyFix(qq,fixed);fbDone.add(fbk.t);saveFbDone();feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);toast("反映し報告を削除しました");renderManage();};
             prow.appendChild(ap);prow.appendChild(apd);pv.appendChild(prow);host.appendChild(pv);typeset(pv);
             btn.disabled=false;btn.textContent="🔧 AIで再校正";
           }catch(e){alert("校正に失敗: "+e.message);btn.disabled=false;btn.textContent="🔧 AIで校正";}
@@ -1749,7 +1755,7 @@ function renderManage(){
         br.appendChild(fixb);
       }
       if(tq){var edb=el("button","btn sec","✏ 編集");edb.onclick=(function(id){return function(){if(userQ.some(function(u){return u.id===id;}))editUserQuestion(id);else toast("内蔵問題は直接編集不可。AI校正で修正版を作成できます");};})(fb.qid);br.appendChild(edb);}
-      var rmBtn=el("button","btn sec","削除");rmBtn.onclick=(function(fbk){return function(){feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);renderManage();};})(fb);br.appendChild(rmBtn);
+      var rmBtn=el("button","btn sec","削除");rmBtn.onclick=(function(fbk){return function(){fbDone.add(fbk.t);saveFbDone();feedback=feedback.filter(function(x){return x.t!==fbk.t;});store.set(LS_FEEDBACK,feedback);renderManage();};})(fb);br.appendChild(rmBtn);
       it.appendChild(br);it.appendChild(fixBox);fbc.appendChild(it);
     });
     m.appendChild(fbc);
