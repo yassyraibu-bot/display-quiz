@@ -149,7 +149,8 @@ const LS_SELECTION="dq_selection_v1", LS_QFB="dq_qfeedback_v1";
 const LS_ISSUEOK="dq_issueok_v1";
 const LS_FBDONE="dq_fbdone_v1";
 const LS_HIDLOG="dq_hidlog_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG]);
+const LS_DELQ="dq_delq_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -578,6 +579,7 @@ let qfeedback=store.get(LS_QFB,[]);
 let aiExp=store.get(LS_AIEXP,{});
 let issueOK=new Set(store.get(LS_ISSUEOK,[]));
 let fbDone=new Set(store.get(LS_FBDONE,[]));
+let delQ=new Set(store.get(LS_DELQ,[]));
 let users=store.get(LS_USERS,[]);
 let currentUser=localStorage.getItem(LS_CURUSER)||"";
 let progByU=store.get(LS_PROGBYU,{});
@@ -698,6 +700,7 @@ function saveQFB(){store.set(LS_QFB,qfeedback);}
 function saveAiExp(){store.set(LS_AIEXP,aiExp);}
 function saveIssueOK(){store.set(LS_ISSUEOK,[...issueOK]);}
 function saveFbDone(){store.set(LS_FBDONE,[...fbDone]);}
+function saveDelQ(){store.set(LS_DELQ,[...delQ]);}
 function currentUserObj(){return users.filter(function(u){return u.id===currentUser;})[0]||{name:"?",leader:false};}
 function isLeader(){return !!currentUserObj().leader;}
 function switchUser(uid){saveProgress();saveHistory();saveCollections();saveNotes();currentUser=uid;localStorage.setItem(LS_CURUSER,uid);progress=progByU[uid]||(progByU[uid]={});history=histByU[uid]||(histByU[uid]=[]);collections=collByU[uid]||(collByU[uid]=[]);notes=notesByU[uid]||(notesByU[uid]={});render(_view||"home");}
@@ -737,7 +740,7 @@ function scheduleSync(){
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone]};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ]};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -779,8 +782,9 @@ async function cloudPull(){
 }
 function mergeCloud(cloud){
   if(!cloud||typeof cloud!=="object")return;
-  var qmap={};(userQ||[]).forEach(function(q){qmap[q.id]=q;});
-  (cloud.userQ||[]).forEach(function(q){if(!q||!q.id)return;var ex=qmap[q.id];if(!ex||((q.updatedAt||0)>(ex.updatedAt||0)))qmap[q.id]=q;});
+  (cloud.delQ||[]).forEach(function(id){delQ.add(id);});
+  var qmap={};(userQ||[]).forEach(function(q){if(delQ.has(q.id))return;qmap[q.id]=q;});
+  (cloud.userQ||[]).forEach(function(q){if(!q||!q.id||delQ.has(q.id))return;var ex=qmap[q.id];if(!ex||((q.updatedAt||0)>(ex.updatedAt||0)))qmap[q.id]=q;});
   userQ=Object.values(qmap);
   userQ=sanitizeQuestions(userQ);
   (cloud.hidden||[]).forEach(function(id){if(!hiddenLog[id]&&!(cloud.hiddenLog&&cloud.hiddenLog[id]))hidden.add(id);});
@@ -831,6 +835,7 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_AIEXP,JSON.stringify(aiExp));
   localStorage.setItem(LS_ISSUEOK,JSON.stringify([...issueOK]));
   localStorage.setItem(LS_FBDONE,JSON.stringify([...fbDone]));
+  localStorage.setItem(LS_DELQ,JSON.stringify([...delQ]));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
 function setUserBadge(){var e=$("#userBadge");if(e){e.textContent="👤 "+currentUserObj().name+" ▼";e.onclick=openUserSwitcher;}}
@@ -1035,7 +1040,7 @@ function cleanupDuplicates(){
   var n=removeUser.length+hideSeed.length;
   if(!n){toast("重複は見つかりませんでした");return;}
   if(!confirm("内容が重複している古い問題 "+n+" 件を整理します。\n（ユーザー問題は削除、内蔵問題は出題除外。各グループで最新版のみ残します）\nよろしいですか？"))return;
-  if(removeUser.length){var rs=new Set(removeUser);userQ=userQ.filter(function(q){return !rs.has(q.id);});store.set(LS_USERQ,userQ);}
+  if(removeUser.length){var rs=new Set(removeUser);userQ=userQ.filter(function(q){return !rs.has(q.id);});removeUser.forEach(function(id){delQ.add(id);});saveDelQ();store.set(LS_USERQ,userQ);}
   hideSeed.forEach(function(id){setHidden(id,true);});
   toast(n+"件を整理しました（最新版のみ残しました）");renderManage();
 }
@@ -1869,7 +1874,7 @@ function renderManage(){
       const row=el("div","row");
       if(isUser){
         const ed=el("button","btn ghost","✏ 編集");ed.onclick=()=>editUserQuestion(qq.id);
-        const del=el("button","btn sec","🗑 削除");del.onclick=()=>{if(confirm("この問題を削除しますか？（元に戻せません）")){userQ=userQ.filter(u=>u.id!==qq.id);store.set(LS_USERQ,userQ);setHidden(qq.id,false);toast("削除しました");draw();}};
+        const del=el("button","btn sec","🗑 削除");del.onclick=()=>{if(confirm("この問題を削除しますか？（元に戻せません）")){userQ=userQ.filter(u=>u.id!==qq.id);delQ.add(qq.id);saveDelQ();store.set(LS_USERQ,userQ);setHidden(qq.id,false);toast("削除しました");draw();}};
         row.appendChild(ed);row.appendChild(del);
       }
       const hide=el("button","btn sec",isHidden?"👁 出題に戻す":"🚫 出題から除外");
