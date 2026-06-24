@@ -723,8 +723,8 @@ function updateSRS(id,correct){
   }
 }
 function dueQuestions(){const now=Date.now();
-  return questionsActive().filter(q=>{const p=progress[q.id];return p&&p.due!=null&&p.due<=now;})
-    .sort((a,b)=>(progress[a.id].due)-(progress[b.id].due));}
+  return dedupeForServe(questionsActive().filter(q=>{const p=progress[q.id];return p&&p.due!=null&&p.due<=now;})
+    .sort((a,b)=>(progress[a.id].due)-(progress[b.id].due)));}
 
 /* ====================== クラウド同期（GitHub Gist） ====================== */
 const GIST_FILE="display-quiz-data.json";
@@ -1011,8 +1011,36 @@ function renderHome(){
     wc.appendChild(tb);m.appendChild(wc);
   }
 }
+function dedupeForServe(list){
+  var best={};
+  (list||[]).forEach(function(q){
+    var k=norm(q.question);var ex=best[k];
+    if(!ex){best[k]=q;return;}
+    var qu=q.updatedAt||0, eu=ex.updatedAt||0;
+    var qSeed=/^[sn]\d/.test(q.id), eSeed=/^[sn]\d/.test(ex.id);
+    if(qu>eu||(qu===eu&&eSeed&&!qSeed))best[k]=q;
+  });
+  var keep=new Set();Object.keys(best).forEach(function(k){keep.add(best[k].id);});
+  return (list||[]).filter(function(q){return keep.has(q.id);});
+}
+function cleanupDuplicates(){
+  var groups={};
+  questionsActive().forEach(function(q){var k=norm(q.question);(groups[k]=groups[k]||[]).push(q);});
+  var removeUser=[],hideSeed=[];
+  Object.keys(groups).forEach(function(k){
+    var arr=groups[k];if(arr.length<2)return;
+    arr.sort(function(a,b){var au=a.updatedAt||0,bu=b.updatedAt||0;if(bu!==au)return bu-au;var as=/^[sn]\d/.test(a.id)?1:0,bs=/^[sn]\d/.test(b.id)?1:0;return as-bs;});
+    for(var i=1;i<arr.length;i++){var q=arr[i];if(/^[sn]\d/.test(q.id))hideSeed.push(q.id);else removeUser.push(q.id);}
+  });
+  var n=removeUser.length+hideSeed.length;
+  if(!n){toast("重複は見つかりませんでした");return;}
+  if(!confirm("内容が重複している古い問題 "+n+" 件を整理します。\n（ユーザー問題は削除、内蔵問題は出題除外。各グループで最新版のみ残します）\nよろしいですか？"))return;
+  if(removeUser.length){var rs=new Set(removeUser);userQ=userQ.filter(function(q){return !rs.has(q.id);});store.set(LS_USERQ,userQ);}
+  hideSeed.forEach(function(id){setHidden(id,true);});
+  toast(n+"件を整理しました（最新版のみ残しました）");renderManage();
+}
 function poolFromFilter(){
-  return questionsActive().filter(q=>{
+  return dedupeForServe(questionsActive().filter(q=>{
     if(filter.cats.size && !q.category.some(c=>filter.cats.has(c)))return false;
     if(!filter.diffs.has(q.difficulty))return false;
     if(!filter.types.has(q.type))return false;
@@ -1023,10 +1051,10 @@ function poolFromFilter(){
     if(filter.author && q.author!==filter.author)return false;
     if(filter.keyword){var __t=filter.keyword.trim().toLowerCase().split(/[\s　]+/).filter(Boolean).map(norm);var __h=norm(q.question+" "+(q.explanation||"")+" "+(q.category||[]).join(" ")+" "+(q.choices?q.choices.join(" "):"")+" "+((q.answer&&q.answer.join)?q.answer.join(" "):"")+" "+(q.modelAnswer||"")+" "+((q.keyPoints&&q.keyPoints.join)?q.keyPoints.join(" "):""));if(!__t.every(function(x){return __h.indexOf(x)>=0;}))return false;}
     return true;
-  });
+  }));
 }
-function weakList(){return questionsActive().filter(q=>getProg(q.id).wrong>0)
-  .sort((a,b)=>getProg(b.id).wrong-getProg(a.id).wrong);}
+function weakList(){return dedupeForServe(questionsActive().filter(q=>getProg(q.id).wrong>0)
+  .sort((a,b)=>getProg(b.id).wrong-getProg(a.id).wrong));}
 
 /* ====================== クイズ進行 ====================== */
 let session=null;
@@ -1822,7 +1850,7 @@ function renderManage(){
     m.appendChild(ic);
   }
   const card=el("div","card");
-  card.appendChild(el("h2",null,"問題の管理（編集・削除・出題除外）"));
+  card.appendChild(el("h2",null,"問題の管理（編集・削除・出題除外）"));var cdupBtn=el("button","btn sec","🧹 重複を整理（最新版のみ残す）");cdupBtn.onclick=cleanupDuplicates;card.appendChild(cdupBtn);
   const search=el("input");search.type="text";search.placeholder="キーワードで絞り込み";card.appendChild(search);
   const listHost=el("div");listHost.style.marginTop="10px";card.appendChild(listHost);
   m.appendChild(card);
