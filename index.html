@@ -687,7 +687,7 @@ function sanitizeQ(q){
   return q;
 }
 function sanitizeQuestions(list){var out=[];(list||[]).forEach(function(q){var s=sanitizeQ(q);if(s)out.push(s);});return out;}
-function allQuestions(){return SEED.concat(userQ);}
+function allQuestions(){var uids=new Set();userQ.forEach(function(q){uids.add(q.id);});return SEED.filter(function(s){return !uids.has(s.id);}).concat(userQ);}
 function saveProgress(){progByU[currentUser]=progress;store.set(LS_PROGBYU,progByU);}
 function saveHistory(){histByU[currentUser]=history;store.set(LS_HISTBYU,histByU);}
 function saveUsers(){store.set(LS_USERS,users);}
@@ -1291,10 +1291,11 @@ async function proofreadQuestion(q,note){
   var fixed=arr[0]; fixed.id=q.id; return fixed;
 }
 function applyFix(orig,fixed){
+  fixed.id=orig.id;
   var idx=userQ.findIndex(function(u){return u.id===orig.id;});
-  if(idx>=0){ fixed.id=orig.id; userQ[idx]=fixed; }
-  else { fixed.id="u"+Date.now(); userQ.push(fixed); hidden.add(orig.id); saveHidden(); }
+  if(idx>=0) userQ[idx]=fixed; else userQ.push(fixed);
   fixed.updatedAt=Date.now();
+  if(hidden.has(orig.id)){hidden.delete(orig.id);saveHidden();}
   store.set(LS_USERQ,userQ);
 }
 function buildPrompt(q){
