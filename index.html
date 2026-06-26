@@ -1696,7 +1696,7 @@ function questionFormCard(existing,onSave,saveLabel){
   const card=el("div","card");
   card.appendChild(el("h2",null,existing?"✏ 問題を編集":"問題を追加（手動）"));
   card.innerHTML+=`
-    <p class="small muted">迷ったら「📝 記入例を入れる」を押すと、その形式の見本が入ります。それを書き換えて保存してください。</p>
+    <p class="small muted">形式を選ぶと、問題文や各入力欄に記入例（薄い文字）が表示されます。それを参考に入力してください。</p>
     <label>形式</label>
     <select id="a_type"><option value="mc">4択</option><option value="fill">穴埋め</option><option value="reason">記述（理由説明）</option></select>
     <label>難易度</label>
@@ -1707,7 +1707,6 @@ function questionFormCard(existing,onSave,saveLabel){
     <input id="a_cat" type="text" placeholder="例: IGZO, デバイス物理">
     <label>問題文</label>
     <textarea id="a_q" placeholder="例: IGZOがa-Si:Hより高い電子移動度を示す主な理由は？（数式は $...$ で書けます）"></textarea>
-    <div id="a_qex" class="small muted" style="margin:-2px 0 8px"></div>
     <div id="a_dyn"></div>
     <label>図（任意）</label>
     <p class="small muted">下のテンプレ挿入／画像URL貼り付け／枠内に画像をドラッグ&ドロップ、のいずれでも追加できます。SVG・HTMLの直接入力も可。</p>
@@ -1720,7 +1719,7 @@ function questionFormCard(existing,onSave,saveLabel){
     <div id="a_linklist"></div>
     <label>解説</label>
     <textarea id="a_exp" placeholder="例: 伝導帯がInのns軌道（球対称）で構成され、結合角の乱れに強いため。（数式は $...$ 可）"></textarea>
-    <div class="row" style="margin-top:14px"><button class="btn sec" id="a_sample" type="button">📝 記入例を入れる</button><button class="btn" id="a_save">${escapeHtml(saveLabel||"＋ 追加して保存")}</button><span id="a_cancel"></span></div>`;
+    <div class="row" style="margin-top:14px"><button class="btn" id="a_save">${escapeHtml(saveLabel||"＋ 追加して保存")}</button><span id="a_cancel"></span></div>`;
   const q=card.querySelector.bind(card);
   q("#a_type").value=e.type||"mc";
   q("#a_diff").value=e.difficulty||2;
@@ -1745,15 +1744,15 @@ function questionFormCard(existing,onSave,saveLabel){
   fa.addEventListener("dragover",function(ev){ev.preventDefault();fa.style.borderColor="var(--accent)";});
   fa.addEventListener("dragleave",function(){fa.style.borderColor="";});
   fa.addEventListener("drop",function(ev){ev.preventDefault();fa.style.borderColor="";var dt=ev.dataTransfer;var f=dt&&dt.files&&dt.files[0];if(!f){var tx=dt?dt.getData("text"):"";if(tx&&/^https?:/.test(tx)){q("#a_fig").value=`<img src="${tx}" style="max-width:100%">`;updFigPrev();}return;}if(!/^image\//.test(f.type)){toast("画像ファイルをドロップしてください");return;}if(f.size>1500000)toast("画像が大きめです（1.5MB以下推奨）");var rd=new FileReader();rd.onload=function(){q("#a_fig").value=`<img src="${rd.result}" style="max-width:100%">`;updFigPrev();toast("画像を追加しました");};rd.readAsDataURL(f);});
-  q("#a_sample").onclick=function(){fillSample(q);};
+  var __sb=q("#a_sample");if(__sb)__sb.onclick=function(){fillSample(q);};
   const dyn=q("#a_dyn");
   function dynFields(){
     const t=q("#a_type").value;
-    var __qx={mc:"問題文例（4択）：「IGZOが a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？」→ 選択肢4つを用意し1行目を正解に。",fill:"問題文例（穴埋め）：「a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。」→ 空欄は ___（半角アンダースコア3つ）。",reason:"問題文例（記述）：「IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。」→ 理由・メカニズムを問う。"};var __qe=q("#a_qex");if(__qe)__qe.textContent=__qx[t]||"";
+    var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（選択肢4つを用意し、下の欄の1行目を正解に）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
     if(t==="mc"){dyn.innerHTML=`<label>選択肢</label><p class="small muted">1行に1つ。<b>1行目を正解</b>にしてください（出題時に自動でシャッフルされます）。4択なら4行。</p>
       <textarea id="a_choices" placeholder="正解の選択肢（1行目に書く）&#10;誤答1&#10;誤答2&#10;誤答3"></textarea>`;
       if(e.type==="mc"&&e.choices)q("#a_choices").value=[e.choices[e.answer]].concat(e.choices.filter((_,i)=>i!==e.answer)).join("\n");}
-    else if(t==="fill"){dyn.innerHTML=`<label>許容解答</label><p class="small muted">問題文の空欄は <b>___</b>（半角アンダースコア3つ）で書きます。解答は<b>カンマ区切り</b>で別表記も許容（例: エキシマレーザアニール, ELA）。空欄が複数あるときは<b>1行に1空欄分</b>ずつ。</p>
+    else if(t==="fill"){dyn.innerHTML=`<label>許容解答</label><p class="small muted">解答は<b>カンマ区切り</b>で別表記も許容（例: エキシマレーザアニール, ELA）。空欄が複数あるときは<b>1行に1空欄分</b>ずつ。</p>
       <textarea id="a_ans" placeholder="エキシマレーザアニール, ELA"></textarea>`;
       if(e.type==="fill"&&e.answer){q("#a_ans").value=Array.isArray(e.answer[0])?e.answer.map(function(a){return a.join(", ");}).join("\n"):e.answer.join(", ");}}
     else{dyn.innerHTML=`<label>模範解答</label><p class="small muted">理由・説明の模範解答（解答者は見比べて自己採点します）。</p><textarea id="a_model" placeholder="例: 伝導帯が金属ns軌道で構成され乱れに強いため…"></textarea>
@@ -1763,7 +1762,7 @@ function questionFormCard(existing,onSave,saveLabel){
   q("#a_type").onchange=dynFields;dynFields();
   q("#a_save").onclick=()=>{
     const t=q("#a_type").value;
-    var __qx={mc:"問題文例（4択）：「IGZOが a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？」→ 選択肢4つを用意し1行目を正解に。",fill:"問題文例（穴埋め）：「a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。」→ 空欄は ___（半角アンダースコア3つ）。",reason:"問題文例（記述）：「IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。」→ 理由・メカニズムを問う。"};var __qe=q("#a_qex");if(__qe)__qe.textContent=__qx[t]||"";
+    var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（選択肢4つを用意し、下の欄の1行目を正解に）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
     const qt=q("#a_q").value.trim();
     const cat=q("#a_cat").value.split(",").map(s=>s.trim()).filter(Boolean);
     if(!qt){toast("問題文を入力してください");return;}
@@ -1796,7 +1795,7 @@ function questionFormCard(existing,onSave,saveLabel){
 /* ====================== 問題追加（手動） ====================== */
 function renderAdd(){
   const m=$("#main");m.innerHTML="";
-  m.appendChild(questionFormCard(null,obj=>{obj.updatedAt=Date.now();obj.approval=needsApproval(obj)?"pending":"approved";userQ.push(obj);store.set(LS_USERQ,userQ);toast(needsApproval(obj)?"追加しました（上長の承認待ち）":"追加しました（"+TYPE[obj.type]+"）");renderAdd();},"＋ 追加して保存"));
+  m.appendChild(questionFormCard(null,obj=>{obj.updatedAt=Date.now();obj.approval=needsApproval(obj)?"pending":"approved";userQ.push(obj);store.set(LS_USERQ,userQ);toast(needsApproval(obj)?"追加しました（上長の承認待ち）":"追加しました（"+TYPE[obj.type]+"）");renderAdd();},"📤 承認を依頼する"));
   const io=el("div","card");
   io.appendChild(el("h2",null,"バックアップ / 一括追加（JSON）"));
   io.appendChild(el("p","small muted",`追加済みのユーザー問題: <b style="color:var(--txt)">${userQ.length}</b> 問 ／ 全 ${allQuestions().length} 問`));
