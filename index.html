@@ -1707,6 +1707,8 @@ function questionFormCard(existing,onSave,saveLabel){
     <input id="a_cat" type="text" placeholder="例: IGZO, デバイス物理">
     <label>問題文</label>
     <textarea id="a_q" placeholder="例: IGZOがa-Si:Hより高い電子移動度を示す主な理由は？（数式は $...$ で書けます）"></textarea>
+    <div class="row" style="margin:2px 0 6px"><button class="btn sec" id="a_simcheck" type="button">🔎 似た問題がないか確認</button></div>
+    <div id="a_simres"></div>
     <div id="a_dyn"></div>
     <label>図（任意）</label>
     <p class="small muted">下のテンプレ挿入／画像URL貼り付け／枠内に画像をドラッグ&ドロップ、のいずれでも追加できます。SVG・HTMLの直接入力も可。</p>
@@ -1745,6 +1747,15 @@ function questionFormCard(existing,onSave,saveLabel){
   fa.addEventListener("dragleave",function(){fa.style.borderColor="";});
   fa.addEventListener("drop",function(ev){ev.preventDefault();fa.style.borderColor="";var dt=ev.dataTransfer;var f=dt&&dt.files&&dt.files[0];if(!f){var tx=dt?dt.getData("text"):"";if(tx&&/^https?:/.test(tx)){q("#a_fig").value=`<img src="${tx}" style="max-width:100%">`;updFigPrev();}return;}if(!/^image\//.test(f.type)){toast("画像ファイルをドロップしてください");return;}if(f.size>1500000)toast("画像が大きめです（1.5MB以下推奨）");var rd=new FileReader();rd.onload=function(){q("#a_fig").value=`<img src="${rd.result}" style="max-width:100%">`;updFigPrev();toast("画像を追加しました");};rd.readAsDataURL(f);});
   var __sb=q("#a_sample");if(__sb)__sb.onclick=function(){fillSample(q);};
+  var scb=q("#a_simcheck");if(scb)scb.onclick=function(){
+    var txt=q("#a_q").value.trim();var host=q("#a_simres");host.innerHTML="";
+    if(!txt){toast("先に問題文を入力してください");return;}
+    var ts=triSet(txt);
+    var hits=questionsActive().filter(function(qq){return e.id?qq.id!==e.id:true;}).map(function(qq){var s=Math.max(overlapCoef(ts,triSet(qq.question)),jacc(ts,triSet(qq.question)));return {q:qq,sim:s};}).filter(function(x){return x.sim>=(settings.simThreshold||0.45);}).sort(function(a,b){return b.sim-a.sim;}).slice(0,8);
+    if(!hits.length){host.appendChild(el("div","small muted","✅ 似た問題は見つかりませんでした。このまま作成して問題ありません。"));return;}
+    host.appendChild(el("div","small muted","⚠ 似た問題が "+hits.length+" 件あります（重複作成にご注意ください）："));
+    hits.forEach(function(x){var dv=el("div","small");dv.style.cssText="margin:2px 0;padding:4px 0;border-top:1px solid var(--line)";dv.innerHTML="<b>"+Math.round(x.sim*100)+"% 類似</b> ｜ "+escapeHtml(x.q.question.slice(0,80));host.appendChild(dv);});
+  };
   const dyn=q("#a_dyn");
   function dynFields(){
     const t=q("#a_type").value;
