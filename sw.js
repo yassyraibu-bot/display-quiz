@@ -1,5 +1,5 @@
 /* ディスプレイ半導体 問題集 — Service Worker (オフライン対応) */
-const CACHE = "dq-cache-v52";
+const CACHE = "dq-cache-v53";
 const ASSETS = [
   "./",
   "./index.html",
