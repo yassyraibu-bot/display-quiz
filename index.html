@@ -700,7 +700,7 @@ function sanitizeQ(q){
   return q;
 }
 function sanitizeQuestions(list){var out=[];(list||[]).forEach(function(q){var s=sanitizeQ(q);if(s)out.push(s);});return out;}
-function allQuestions(){var uids=new Set();userQ.forEach(function(q){uids.add(q.id);});return SEED.filter(function(s){return !uids.has(s.id);}).concat(userQ);}
+function allQuestions(){if(isGuest()&&guestQ)return guestQ;var uids=new Set();userQ.forEach(function(q){uids.add(q.id);});return SEED.filter(function(s){return !uids.has(s.id);}).concat(userQ);}
 function saveProgress(){progByU[currentUser]=progress;store.set(LS_PROGBYU,progByU);}
 function saveHistory(){histByU[currentUser]=history;store.set(LS_HISTBYU,histByU);}
 function saveUsers(){store.set(LS_USERS,users);}
@@ -755,7 +755,7 @@ function scheduleSync(){if(isGuest())return;
   syncTimer=setTimeout(()=>{cloudPush().then(()=>setSyncStatus("☁ 同期済み "+new Date().toLocaleTimeString()))
     .catch(()=>setSyncStatus("⚠ 同期失敗"));},3000);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null)};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -800,6 +800,7 @@ function mergeCloud(cloud){
   (cloud.delQ||[]).forEach(function(id){delQ.add(id);});
   var clk=cloud.likes||{};Object.keys(clk).forEach(function(qid){likes[qid]=likes[qid]||{};Object.keys(clk[qid]).forEach(function(uid){var c=clk[qid][uid],l=likes[qid][uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))likes[qid][uid]=c;});});
   (cloud.genres||[]).forEach(function(g){if(genres.indexOf(g)<0)genres.push(g);});
+  if(cloud.genrePub)settings.genrePub=Object.assign({},settings.genrePub||{},cloud.genrePub);if(cloud.snap&&!settings.snap)settings.snap=cloud.snap;
   var qmap={};(userQ||[]).forEach(function(q){if(delQ.has(q.id))return;qmap[q.id]=q;});
   (cloud.userQ||[]).forEach(function(q){if(!q||!q.id||delQ.has(q.id))return;var ex=qmap[q.id];if(!ex||((q.updatedAt||0)>(ex.updatedAt||0)))qmap[q.id]=q;});
   userQ=Object.values(qmap);
@@ -1996,6 +1997,7 @@ function renderManage(){
       const hide=el("button","btn sec",isHidden?"👁 出題に戻す":"🚫 出題から除外");
       hide.onclick=()=>{setHidden(qq.id,!isHidden);draw();};
       row.appendChild(hide);
+      if(isUser&&isApprovedQ(qq)&&(settings.genrePub||{})[qq.genre||"ディスプレイ関連"]==="selected"){var pubb=el("button","btn sec",qq.publish?"🌐 公開中":"🌐 公開する");pubb.onclick=(function(id){return function(){var u=userQ.find(function(x){return x.id===id;});if(!u)return;u.publish=!u.publish;u.updatedAt=Date.now();store.set(LS_USERQ,userQ);toast(u.publish?"公開対象にしました":"公開対象から外しました");draw();};})(qq.id);row.appendChild(pubb);}
       it.appendChild(row);listHost.appendChild(it);
     });
     typeset(listHost);
@@ -2248,6 +2250,34 @@ function userDisplay(u){return u?(u.name+(u.empId?(" ["+u.empId+"]"):"")):"-";}
 function findUsersByQuery(qy){qy=(qy||"").trim().toLowerCase();if(!qy)return [];return users.filter(function(u){return (u.name&&u.name.toLowerCase().indexOf(qy)>=0)||(u.empId&&String(u.empId).indexOf(qy)>=0);});}
 function pendingForMe(){var me=currentUser,admin=isAdmin();return userQ.filter(function(q){if(q.approval!=="pending"||!inGenre(q))return false;if(admin)return true;var au=userById(q.author);return au&&au.supervisor===me;});}
 function iAmReviewer(){return isAdmin()||users.some(function(u){return u.supervisor===currentUser;});}
+var guestQ=null;
+async function publishSnapshot(){
+  if(!settings.sync||!settings.sync.token){toast("GitHubトークンが必要です（設定→クラウド同期）");return;}
+  var gp=settings.genrePub||{};
+  var pub=allQuestions().filter(function(q){if(!isApprovedQ(q))return false;var mode=gp[q.genre||"ディスプレイ関連"];if(mode==="all")return true;if(mode==="selected")return !!q.publish;return false;});
+  if(!pub.length){toast("公開対象の問題がありません（ジャンルの公開設定を確認）");return;}
+  var clean=pub.map(function(q){var o={id:q.id,type:q.type,difficulty:q.difficulty,category:q.category,question:q.question,explanation:q.explanation||"",genre:q.genre||"ディスプレイ関連"};if(q.type==="mc"){o.choices=q.choices;o.answer=q.answer;}else if(q.type==="fill"){o.answer=q.answer;}else{o.modelAnswer=q.modelAnswer;o.keyPoints=q.keyPoints||[];}if(q.figure)o.figure=q.figure;if(q.links)o.links=q.links;return o;});
+  var gs=[];clean.forEach(function(q){if(gs.indexOf(q.genre)<0)gs.push(q.genre);});
+  var payload=JSON.stringify({_v:1,t:Date.now(),questions:clean,genres:gs});
+  settings.snap=settings.snap||{};
+  try{
+    if(settings.snap.gistId){await gistFetch("PATCH","/gists/"+settings.snap.gistId,{files:{"knowlet-public.json":{content:payload}}});}
+    else{var g=await gistFetch("POST","/gists",{description:"Knowlet 公開問題スナップショット",public:true,files:{"knowlet-public.json":{content:payload}}});settings.snap.gistId=g.id;}
+    settings.snap.t=Date.now();settings.snap.count=clean.length;store.set(LS_SET,settings);
+    toast(clean.length+"問を公開しました");renderSettings();
+  }catch(e){alert("公開に失敗: "+e.message);}
+}
+async function loadGuestSnapshot(snapId){
+  try{
+    var g=await fetch("https://api.github.com/gists/"+snapId).then(function(r){return r.json();});
+    var f=g.files&&g.files["knowlet-public.json"];if(!f)return false;
+    var content=f.content;if(f.truncated&&f.raw_url){content=await fetch(f.raw_url).then(function(r){return r.text();});}
+    var data=JSON.parse(content);
+    guestQ=(data.questions||[]).map(sanitizeQ).filter(Boolean);
+    if(data.genres&&data.genres.length){genres=data.genres.slice();if(genres.indexOf(currentGenre)<0)currentGenre=genres[0];}
+    return true;
+  }catch(e){return false;}
+}
 function isGuest(){return localStorage.getItem("dq_guest")==="1";}
 function applyGuestLock(view){if(!isGuest()||view==="home"||view==="")return;var m=$("#main");if(!m)return;var bn=el("div","card");bn.style.cssText="border:1px solid var(--accent)";bn.innerHTML="👀 <b>ゲストモード</b>：このタブは閲覧のみです。クイズは「出題」タブから挑戦できます。";m.insertBefore(bn,m.firstChild);[].forEach.call(m.querySelectorAll("button,input,select,textarea,label.btn,a.btn"),function(x){x.disabled=true;x.style.pointerEvents="none";x.style.opacity="0.55";});}
 function applyNavPerms(){var g=isGuest();[].forEach.call(nav.children,function(b){var v=b.dataset.view;if(g){b.style.display=(v==="settings")?"none":"";return;}if(v==="gen"||v==="manage"||v==="settings")b.style.display=hasPerm(v)?"":"none";else if(v==="approve")b.style.display=iAmReviewer()?"":"none";});}
@@ -2291,7 +2321,7 @@ function renderApprovals(){
 }
 function renderSettings(){
   const m=$("#main");m.innerHTML="";
-  (function(){var gc=el("div","card");gc.appendChild(el("h2",null,"🔗 ゲスト用URL"));gc.appendChild(el("p","small muted","このURLを送った相手は「クイズのみ挑戦可・他タブは閲覧のみ・設定は非表示」のゲストとして利用できます。"));var url=location.href.split(/[?#]/)[0]+"?guest=1";var inp=el("input");inp.type="text";inp.value=url;inp.readOnly=true;inp.onclick=function(){inp.select();};gc.appendChild(inp);var row=el("div","row");row.style.marginTop="8px";var cp=el("button","btn","📋 URLをコピー");cp.onclick=function(){inp.select();var done=function(){toast("ゲスト用URLをコピーしました");};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(done).catch(function(){try{document.execCommand("copy");done();}catch(e){toast("コピー不可。URLを選択してコピーしてください");}});}else{try{document.execCommand("copy");done();}catch(e){toast("コピーできませんでした");}}};row.appendChild(cp);gc.appendChild(row);m.appendChild(gc);})();
+  (function(){var gc=el("div","card");gc.appendChild(el("h2",null,"🔗 ゲスト用URL"));gc.appendChild(el("p","small muted","このURLを送った相手は「クイズのみ挑戦可・他タブは閲覧のみ・設定は非表示」のゲストとして利用できます。"));var url=location.href.split(/[?#]/)[0]+"?guest=1"+(settings.snap&&settings.snap.gistId?("&snap="+settings.snap.gistId):"");var inp=el("input");inp.type="text";inp.value=url;inp.readOnly=true;inp.onclick=function(){inp.select();};gc.appendChild(inp);var row=el("div","row");row.style.marginTop="8px";var cp=el("button","btn","📋 URLをコピー");cp.onclick=function(){inp.select();var done=function(){toast("ゲスト用URLをコピーしました");};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(done).catch(function(){try{document.execCommand("copy");done();}catch(e){toast("コピー不可。URLを選択してコピーしてください");}});}else{try{document.execCommand("copy");done();}catch(e){toast("コピーできませんでした");}}};row.appendChild(cp);gc.appendChild(row);m.appendChild(gc);})();(function(){if(!isAdmin())return;var pc=el("div","card");pc.appendChild(el("h2",null,"🌐 ゲスト公開（スナップショット）"));pc.appendChild(el("p","small muted","ジャンルごとに公開方法を選び、下の「更新」を押すと承認済み問題がゲストに公開されます（承認待ち・差し戻しは公開されません）。"));genres.forEach(function(gn){var rw=el("div","row");rw.style.cssText="align-items:center;gap:8px;margin:3px 0";var lb=el("div");lb.style.flex="1";lb.textContent="📂 "+gn;var sel=el("select");[["off","非公開"],["all","承認済みを全部公開"],["selected","選んだ問題だけ公開"]].forEach(function(o){var op=el("option");op.value=o[0];op.textContent=o[1];sel.appendChild(op);});sel.value=(settings.genrePub&&settings.genrePub[gn])||"off";sel.onchange=(function(g,s){return function(){settings.genrePub=settings.genrePub||{};settings.genrePub[g]=s.value;store.set(LS_SET,settings);toast("公開設定を保存しました");};})(gn,sel);rw.appendChild(lb);rw.appendChild(sel);pc.appendChild(rw);});var st=el("p","small muted");if(settings.snap&&settings.snap.gistId){st.textContent="公開中: "+(settings.snap.count||0)+"問 ｜ 最終更新 "+(settings.snap.t?new Date(settings.snap.t).toLocaleString():"-");}else{st.textContent="まだ公開していません。";}pc.appendChild(st);var br=el("div","row");br.style.marginTop="8px";var ub=el("button","btn","🌐 公開スナップショットを更新");ub.onclick=function(){publishSnapshot();};br.appendChild(ub);pc.appendChild(br);pc.appendChild(el("p","small muted","※「選んだ問題だけ」は管理タブで各問題の「🌐公開する」で対象指定（内蔵問題は個別選択不可・全部公開のみ対象）。"));m.appendChild(pc);})();
   const card=el("div","card");
   card.appendChild(el("h2",null,"設定 — Claude 解説・生成連携"));
   card.innerHTML+=`
@@ -2428,6 +2458,7 @@ function renderSettings(){
 
 userQ=sanitizeQuestions(userQ);store.set(LS_USERQ,userQ);
 (function(){var m=/[?&#]guest=([01])/i.exec(location.href);if(m){if(m[1]==="1")localStorage.setItem("dq_guest","1");else localStorage.removeItem("dq_guest");}})();
+(function(){var s=/[?&#]snap=([0-9a-fA-F]+)/.exec(location.href);if(isGuest()&&s){loadGuestSnapshot(s[1]).then(function(){setGenreBadge();applyNavPerms();renderHome();});}})();
 renderHome();
 setUserBadge();
 setGenreBadge();
