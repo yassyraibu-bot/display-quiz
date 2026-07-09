@@ -1,7 +1,7 @@
 {
-  "name": "ディスプレイ半導体 問題集",
-  "short_name": "問題集",
-  "description": "LCD / IGZO 半導体プロセスと回路設計の問題集",
+  "name": "Knowlet",
+  "short_name": "Knowlet",
+  "description": "みんなで育てる社内ナレッジ・クイズ",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
