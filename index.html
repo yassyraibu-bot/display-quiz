@@ -58,7 +58,8 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
   .chip.on{background:var(--accent);color:#06141f;border-color:var(--accent);font-weight:600}
   @keyframes dqwig{0%{transform:rotate(-1.6deg)}50%{transform:rotate(1.6deg)}100%{transform:rotate(-1.6deg)}}
   .chip.editing{animation:dqwig .18s infinite;position:relative;overflow:visible}
-  .chip.dragging{opacity:.55;transform:scale(1.08);animation:none}
+  .chip.dragging{opacity:.85;animation:none;z-index:5;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+  .catwrap.dragmode .chip{animation:none}
   .chip .xb{position:absolute;top:-7px;right:-7px;background:var(--ng);color:#fff;border-radius:50%;width:18px;height:18px;line-height:16px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border:1px solid #fff}
   .pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
   .pill.d1{color:var(--d1);border-color:var(--d1)} .pill.d2{color:var(--d2);border-color:var(--d2)} .pill.d3{color:var(--d3);border-color:var(--d3)}
@@ -952,11 +953,32 @@ function catStatList(){
   });});
   return Object.keys(m).map(function(k){return m[k];});
 }
-var catEditMode=false;
+var catEditMode=false,_catDocClick=null,_catDragged=false;
+function confirmYesNo(title,msg){
+  return new Promise(function(res){
+    var ov=el("div","modal");
+    ov.innerHTML=`<div class="modal-box"><h2>${escapeHtml(title)}</h2><div>${escapeHtml(msg)}</div><div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn sec" id="yn_no">いいえ</button><button class="btn" id="yn_yes">はい</button></div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector("#yn_yes").onclick=function(){ov.remove();res(true);};
+    ov.querySelector("#yn_no").onclick=function(){ov.remove();res(false);};
+  });
+}
+function flipMove(wrap,mutate){
+  var els=[].slice.call(wrap.querySelectorAll(".chip"));
+  var first=els.map(function(e){return e.getBoundingClientRect();});
+  mutate();
+  els.forEach(function(e,i){
+    var l=e.getBoundingClientRect();
+    var dx=first[i].left-l.left,dy=first[i].top-l.top;
+    if(dx||dy){e.style.transition="none";e.style.transform="translate("+dx+"px,"+dy+"px)";}
+  });
+  requestAnimationFrame(function(){els.forEach(function(e){e.style.transition="transform .18s ease";e.style.transform="";});});
+}
 function wireCatChip(chip,cat,wrap){
   var lpTimer=null,startX=0,startY=0,suppressClick=false;
   chip.style.touchAction="none";
   chip.addEventListener("pointerdown",function(ev){
+    if(ev.target&&ev.target.classList&&ev.target.classList.contains("xb"))return;
     startX=ev.clientX;startY=ev.clientY;
     if(catEditMode){startDrag(ev);return;}
     lpTimer=setTimeout(function(){lpTimer=null;suppressClick=true;catEditMode=true;if(navigator.vibrate)navigator.vibrate(30);renderHome();},500);
@@ -967,27 +989,29 @@ function wireCatChip(chip,cat,wrap){
   chip.addEventListener("pointerup",function(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}});
   chip.addEventListener("pointercancel",function(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}});
   chip.addEventListener("click",function(ev){
-    if(catEditMode){ev.preventDefault();ev.stopPropagation();return;}
+    if(catEditMode){ev.preventDefault();ev.stopPropagation();if(_catDragged){_catDragged=false;return;}catEditMode=false;renderHome();return;}
     if(suppressClick){suppressClick=false;ev.preventDefault();return;}
     if(filter.cats.has(cat))filter.cats.delete(cat);else filter.cats.add(cat);
     renderHome();
   });
   function startDrag(ev){
-    var dragging=chip;dragging.classList.add("dragging");
+    var dragging=chip,moved=false;
+    wrap.classList.add("dragmode");dragging.classList.add("dragging");
     function onMove(e){
+      if(Math.abs(e.clientX-startX)>4||Math.abs(e.clientY-startY)>4)moved=true;
       var t0=document.elementFromPoint(e.clientX,e.clientY);
       var t=(t0&&t0.closest)?t0.closest(".chip"):null;
       if(t&&t!==dragging&&t.parentNode===wrap){
         var rc=t.getBoundingClientRect();
-        wrap.insertBefore(dragging,(e.clientX<rc.left+rc.width/2)?t:t.nextSibling);
+        var ref=(e.clientX<rc.left+rc.width/2)?t:t.nextSibling;
+        if(ref!==dragging&&ref!==dragging.nextSibling)flipMove(wrap,function(){wrap.insertBefore(dragging,ref);});
       }
     }
     function onUp(){
-      dragging.classList.remove("dragging");
       document.removeEventListener("pointermove",onMove);
       document.removeEventListener("pointerup",onUp);
-      var order=[].map.call(wrap.querySelectorAll(".chip"),function(x){return x.dataset.cat;});
-      saveCatOrder(order);renderHome();
+      dragging.classList.remove("dragging");wrap.classList.remove("dragmode");
+      if(moved){_catDragged=true;var order=[].map.call(wrap.querySelectorAll(".chip"),function(x){return x.dataset.cat;});saveCatOrder(order);renderHome();}
     }
     document.addEventListener("pointermove",onMove);
     document.addEventListener("pointerup",onUp);
@@ -1104,14 +1128,16 @@ function renderHome(){
   var ch3=el("h3",null,"カテゴリ（未選択=すべて）");ch3.style.margin="0";catHead.appendChild(ch3);
   if(!isGuest()){var cmb=el("button","btn sec","⚙ カテゴリを管理");cmb.onclick=openCatManager;catHead.appendChild(cmb);}
   card.appendChild(catHead);
-  const catWrap=el("div","row");
+  const catWrap=el("div","row catwrap");
   cats.forEach(c=>{const chip=el("span","chip"+(filter.cats.has(c)?" on":"")+(catEditMode?" editing":""),escapeHtml(c));
     chip.dataset.cat=c;
-    if(catEditMode){var xbg=el("span","xb","✕");xbg.onclick=(function(cc){return function(ev){ev.stopPropagation();ev.preventDefault();var l=catsForGenre().filter(function(x){return x!==cc;});saveCatOrder(l);toast(cc+" を削除しました");renderHome();};})(c);chip.appendChild(xbg);}
+    if(catEditMode){var xbg=el("span","xb","✕");xbg.addEventListener("pointerdown",function(ev){ev.stopPropagation();});xbg.addEventListener("click",(function(cc){return async function(ev){ev.stopPropagation();ev.preventDefault();var ok=await confirmYesNo("カテゴリの削除","「"+cc+"」を出題設定から削除しますか？（問題そのものは削除されません）");if(!ok)return;var l=catsForGenre().filter(function(x){return x!==cc;});saveCatOrder(l);toast(cc+" を削除しました");renderHome();};})(c));chip.appendChild(xbg);}
     if(!isGuest())wireCatChip(chip,c,catWrap);else chip.onclick=()=>{filter.cats.has(c)?filter.cats.delete(c):filter.cats.add(c);renderHome();};
     catWrap.appendChild(chip);});
   card.appendChild(catWrap);
-  if(catEditMode){var edr=el("div","row");edr.style.marginTop="6px";var dn2=el("button","btn","✓ 完了");dn2.onclick=function(){catEditMode=false;renderHome();};var hint=el("span","small muted");hint.textContent="ドラッグで並べ替え／✕で削除";edr.appendChild(dn2);edr.appendChild(hint);card.appendChild(edr);}
+  if(_catDocClick){document.removeEventListener("click",_catDocClick);_catDocClick=null;}
+  if(catEditMode&&!isGuest()){_catDocClick=function(ev){if(ev.target&&ev.target.closest&&(ev.target.closest(".xb")||ev.target.closest(".chip")||ev.target.closest(".modal")))return;if(_catDragged){_catDragged=false;return;}catEditMode=false;renderHome();};setTimeout(function(){document.addEventListener("click",_catDocClick);},0);}
+  if(catEditMode){var edr=el("div","row");edr.style.marginTop="6px";var dn2=el("button","btn","✓ 完了");dn2.onclick=function(){catEditMode=false;renderHome();};var hint=el("span","small muted");hint.textContent="ドラッグで並べ替え／✕で削除／他をタップで終了";edr.appendChild(dn2);edr.appendChild(hint);card.appendChild(edr);}
   else if(!isGuest()){card.appendChild(el("p","small muted","カテゴリを長押しすると並べ替え・削除ができます。"));}
   card.appendChild(el("h3",null,"難易度"));
   const dWrap=el("div","row");
