@@ -1180,7 +1180,7 @@ function renderHome(){
   const start=el("button","btn","▶ クイズ開始");
   start.id="home_start";
   start.disabled=pool.length===0;
-  start.onclick=()=>{if(filter.order==="stale"){var ord=pool.slice().sort(function(a,b){return ((progress[a.id]&&progress[a.id].last)||0)-((progress[b.id]&&progress[b.id].last)||0);});startQuiz(ord,true);}else startQuiz(pool);};
+  start.onclick=()=>{var pl=poolFromFilter();if(!pl.length){toast("条件に合う問題がありません");return;}if(filter.order==="stale"){var ord=pl.slice().sort(function(a,b){return ((progress[a.id]&&progress[a.id].last)||0)-((progress[b.id]&&progress[b.id].last)||0);});startQuiz(ord,true);}else startQuiz(pl);};
   card.appendChild(start);
   m.appendChild(card);
   const due=dueQuestions();
@@ -1891,6 +1891,36 @@ function fillSample(q){
   }
   toast("記入例を入れました。内容を書き換えてください");
 }
+function importWithDupCheck(arr){
+  var known=allQuestions().map(function(q){return {q:q,t:triSet(q.question||"")};});
+  var dups=[],fresh=[];
+  arr.forEach(function(o){
+    var ts=triSet(o.question||"");var hit=null;
+    for(var i=0;i<known.length;i++){if(tooSimilar(ts,known[i].t)){hit=known[i].q;break;}}
+    if(hit)dups.push({o:o,hit:hit});else{fresh.push(o);known.push({q:o,t:ts});}
+  });
+  function commit(list){
+    if(!list.length){toast("取り込む問題がありません");return;}
+    list.forEach(function(o){if(!o.updatedAt)o.updatedAt=Date.now();});
+    userQ=userQ.concat(list);store.set(LS_USERQ,userQ);toast("インポート完了 "+list.length+"問");renderAdd();
+  }
+  if(!dups.length){commit(fresh);return;}
+  var ov;var c=el("div");
+  c.appendChild(el("h2",null,"⚠ 既存と重複する問題があります"));
+  c.appendChild(el("p","small muted",arr.length+"問のうち "+dups.length+"問が既存問題（内蔵・AI生成・手動作成すべて）と似ています。新規は "+fresh.length+"問です。"));
+  dups.slice(0,20).forEach(function(d){
+    var it=el("div","genitem");
+    it.appendChild(el("div",null,escapeHtml((d.o.question||"").slice(0,70))));
+    it.appendChild(el("div","small muted","↔ 既存: "+escapeHtml((d.hit.question||"").slice(0,70))+"（"+escapeHtml(d.hit.genre||"ディスプレイ関連")+"）"));
+    c.appendChild(it);
+  });
+  if(dups.length>20)c.appendChild(el("p","small muted","…他 "+(dups.length-20)+"件"));
+  var row=el("div","row");row.style.marginTop="12px";row.style.flexWrap="wrap";
+  var b1=el("button","btn","重複を除いて "+fresh.length+"問だけ取り込む");b1.onclick=function(){if(ov)ov.remove();commit(fresh);};
+  var b2=el("button","btn sec","すべて取り込む（"+arr.length+"問）");b2.onclick=function(){if(ov)ov.remove();commit(arr);};
+  if(fresh.length)row.appendChild(b1);row.appendChild(b2);c.appendChild(row);
+  ov=showModal(c);
+}
 function questionFormCard(existing,onSave,saveLabel){
   const e=existing||{};
   const card=el("div","card");
@@ -2016,11 +2046,11 @@ function renderAdd(){
     const a=el("a");a.href=URL.createObjectURL(blob);a.download="display-quiz-questions.json";a.click();};
   const impLabel=el("label","btn ghost","⬆ JSONをインポート");impLabel.style.margin="0";impLabel.style.cursor="pointer";
   const impInput=el("input");impInput.type="file";impInput.accept=".json";impInput.style.display="none";
-  impInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
-    r.onload=()=>{try{const arr=JSON.parse(r.result);if(!Array.isArray(arr))throw 0;
+  impInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const fr2=new FileReader();
+    fr2.onload=()=>{var arr;try{arr=JSON.parse(fr2.result);if(!Array.isArray(arr))throw 0;}catch(err){toast("JSONの形式が不正です");return;}
       arr.forEach(o=>{if(!o.id)o.id="u"+Date.now()+Math.random().toString(36).slice(2,6);});
-      userQ=userQ.concat(arr);store.set(LS_USERQ,userQ);toast("インポート完了 "+arr.length+"問");renderAdd();
-    }catch(e){toast("JSONの形式が不正です");}};r.readAsText(f);};
+      importWithDupCheck(arr);
+    };fr2.readAsText(f);impInput.value="";};
   impLabel.appendChild(impInput);
   ioRow.appendChild(exp);ioRow.appendChild(impLabel);io.appendChild(ioRow);m.appendChild(io);
 }
