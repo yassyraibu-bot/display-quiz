@@ -56,6 +56,10 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
   .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);
     border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;user-select:none}
   .chip.on{background:var(--accent);color:#06141f;border-color:var(--accent);font-weight:600}
+  @keyframes dqwig{0%{transform:rotate(-1.6deg)}50%{transform:rotate(1.6deg)}100%{transform:rotate(-1.6deg)}}
+  .chip.editing{animation:dqwig .18s infinite;position:relative;overflow:visible}
+  .chip.dragging{opacity:.55;transform:scale(1.08);animation:none}
+  .chip .xb{position:absolute;top:-7px;right:-7px;background:var(--ng);color:#fff;border-radius:50%;width:18px;height:18px;line-height:16px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border:1px solid #fff}
   .pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
   .pill.d1{color:var(--d1);border-color:var(--d1)} .pill.d2{color:var(--d2);border-color:var(--d2)} .pill.d3{color:var(--d3);border-color:var(--d3)}
   .muted{color:var(--muted)} .small{font-size:12px}
@@ -948,6 +952,47 @@ function catStatList(){
   });});
   return Object.keys(m).map(function(k){return m[k];});
 }
+var catEditMode=false;
+function wireCatChip(chip,cat,wrap){
+  var lpTimer=null,startX=0,startY=0,suppressClick=false;
+  chip.style.touchAction="none";
+  chip.addEventListener("pointerdown",function(ev){
+    startX=ev.clientX;startY=ev.clientY;
+    if(catEditMode){startDrag(ev);return;}
+    lpTimer=setTimeout(function(){lpTimer=null;suppressClick=true;catEditMode=true;if(navigator.vibrate)navigator.vibrate(30);renderHome();},500);
+  });
+  chip.addEventListener("pointermove",function(ev){
+    if(lpTimer&&(Math.abs(ev.clientX-startX)>8||Math.abs(ev.clientY-startY)>8)){clearTimeout(lpTimer);lpTimer=null;}
+  });
+  chip.addEventListener("pointerup",function(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}});
+  chip.addEventListener("pointercancel",function(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}});
+  chip.addEventListener("click",function(ev){
+    if(catEditMode){ev.preventDefault();ev.stopPropagation();return;}
+    if(suppressClick){suppressClick=false;ev.preventDefault();return;}
+    if(filter.cats.has(cat))filter.cats.delete(cat);else filter.cats.add(cat);
+    renderHome();
+  });
+  function startDrag(ev){
+    var dragging=chip;dragging.classList.add("dragging");
+    function onMove(e){
+      var t0=document.elementFromPoint(e.clientX,e.clientY);
+      var t=(t0&&t0.closest)?t0.closest(".chip"):null;
+      if(t&&t!==dragging&&t.parentNode===wrap){
+        var rc=t.getBoundingClientRect();
+        wrap.insertBefore(dragging,(e.clientX<rc.left+rc.width/2)?t:t.nextSibling);
+      }
+    }
+    function onUp(){
+      dragging.classList.remove("dragging");
+      document.removeEventListener("pointermove",onMove);
+      document.removeEventListener("pointerup",onUp);
+      var order=[].map.call(wrap.querySelectorAll(".chip"),function(x){return x.dataset.cat;});
+      saveCatOrder(order);renderHome();
+    }
+    document.addEventListener("pointermove",onMove);
+    document.addEventListener("pointerup",onUp);
+  }
+}
 function openCatManager(){
   var ov;var c=el("div");c.appendChild(el("h2",null,"カテゴリの管理"));
   c.appendChild(el("p","small muted","出題設定に表示するカテゴリと並び順を管理します（ジャンル: "+currentGenre+"）。"));
@@ -1060,9 +1105,14 @@ function renderHome(){
   if(!isGuest()){var cmb=el("button","btn sec","⚙ カテゴリを管理");cmb.onclick=openCatManager;catHead.appendChild(cmb);}
   card.appendChild(catHead);
   const catWrap=el("div","row");
-  cats.forEach(c=>{const chip=el("span","chip"+(filter.cats.has(c)?" on":""),escapeHtml(c));
-    chip.onclick=()=>{filter.cats.has(c)?filter.cats.delete(c):filter.cats.add(c);renderHome();};catWrap.appendChild(chip);});
+  cats.forEach(c=>{const chip=el("span","chip"+(filter.cats.has(c)?" on":"")+(catEditMode?" editing":""),escapeHtml(c));
+    chip.dataset.cat=c;
+    if(catEditMode){var xbg=el("span","xb","✕");xbg.onclick=(function(cc){return function(ev){ev.stopPropagation();ev.preventDefault();var l=catsForGenre().filter(function(x){return x!==cc;});saveCatOrder(l);toast(cc+" を削除しました");renderHome();};})(c);chip.appendChild(xbg);}
+    if(!isGuest())wireCatChip(chip,c,catWrap);else chip.onclick=()=>{filter.cats.has(c)?filter.cats.delete(c):filter.cats.add(c);renderHome();};
+    catWrap.appendChild(chip);});
   card.appendChild(catWrap);
+  if(catEditMode){var edr=el("div","row");edr.style.marginTop="6px";var dn2=el("button","btn","✓ 完了");dn2.onclick=function(){catEditMode=false;renderHome();};var hint=el("span","small muted");hint.textContent="ドラッグで並べ替え／✕で削除";edr.appendChild(dn2);edr.appendChild(hint);card.appendChild(edr);}
+  else if(!isGuest()){card.appendChild(el("p","small muted","カテゴリを長押しすると並べ替え・削除ができます。"));}
   card.appendChild(el("h3",null,"難易度"));
   const dWrap=el("div","row");
   [1,2,3].forEach(d=>{const chip=el("span","chip"+(filter.diffs.has(d)?" on":""),DIFF[d]);
