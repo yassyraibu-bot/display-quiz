@@ -1718,7 +1718,7 @@ function parseGenerated(text){
 function triSet(s){var t=norm(s);var set=new Set();if(t.length<3){if(t)set.add(t);return set;}for(var i=0;i<=t.length-3;i++)set.add(t.substr(i,3));return set;}
 function jacc(a,b){if(!a.size||!b.size)return 0;var inter=0;a.forEach(function(x){if(b.has(x))inter++;});return inter/(a.size+b.size-inter);}
 function overlapCoef(a,b){if(!a.size||!b.size)return 0;var inter=0;a.forEach(function(x){if(b.has(x))inter++;});return inter/Math.min(a.size,b.size);}
-function tooSimilar(a,b){var th=settings.simThreshold||0.45;if(th>=1)return false;return overlapCoef(a,b)>th||jacc(a,b)>Math.max(0.5,th);}
+function tooSimilar(a,b){var th=settings.simThreshold||0.45;if(th>=1)return false;var j=jacc(a,b);if(j>Math.max(0.5,th))return true;return overlapCoef(a,b)>th&&j>0.3;}
 var SIM_THRESHOLD=0.55;
 function dedupeNew(list){
   var knownTri=questionsActive().map(function(q){return triSet(q.question);});
