@@ -2691,18 +2691,47 @@ function openBoardPostForm(qid,editPost){
   card.appendChild(el("p","small muted","投稿は上長の承認後に全員へ公開されます（上長が未設定の場合は管理者が承認します）。問題への疑問でも、自由な質問・相談でもOKです。"));
   card.appendChild(el("label",null,"関連する問題（任意）"));
   var selQid=editPost?(editPost.qid||""):(qid||"");
-  var qNow=el("div","small muted");card.appendChild(qNow);
+  var qNow=el("div");card.appendChild(qNow);
   function updQ(){qNow.innerHTML="";var q=selQid?findQById(selQid):null;
-    if(q){qNow.appendChild(el("span",null,"🔗 "+escapeHtml(q.question.slice(0,70))+" "));var cb=el("button","btn sec","解除");cb.type="button";cb.style.cssText="padding:1px 8px;font-size:11px";cb.onclick=function(){selQid="";updQ();};qNow.appendChild(cb);}
-    else if(selQid){qNow.textContent="🔗 （削除済みの問題: "+selQid+"）";}
-    else qNow.textContent="未選択（自由投稿になります）";}
+    if(q){
+      var box=el("div");box.style.cssText="border:1px solid var(--accent);border-radius:10px;padding:10px;margin:4px 0;background:var(--panel2)";
+      box.appendChild(el("div",null,'<b style="color:var(--accent)">✅ この問題について質問します（選択中）</b>'));
+      box.appendChild(el("div","small muted",TYPE[q.type]+" ｜ "+DIFF[q.difficulty]+" ｜ "+(q.category||[]).join(", ")));
+      var head=el("div",null,escapeHtml(q.question.slice(0,80))+(q.question.length>80?"…":""));head.style.margin="4px 0";box.appendChild(head);
+      var det=el("div");det.style.display="none";det.appendChild(el("div",null,fmtQ(q)));box.appendChild(det);
+      var rw=el("div","row");rw.style.marginTop="6px";
+      var tg=el("button","btn sec","▼ 全文を確認");tg.type="button";
+      tg.onclick=function(){if(det.style.display==="none"){det.style.display="";head.style.display="none";tg.textContent="▲ 折りたたむ";typeset(det);}else{det.style.display="none";head.style.display="";tg.textContent="▼ 全文を確認";}};
+      var cb=el("button","btn sec","✕ 選択を解除");cb.type="button";cb.onclick=function(){selQid="";updQ();};
+      rw.appendChild(tg);rw.appendChild(cb);box.appendChild(rw);
+      qNow.appendChild(box);
+    }
+    else if(selQid){qNow.appendChild(el("div","small muted","🔗 （削除済みの問題: "+selQid+"）"));}
+    else qNow.appendChild(el("div","small muted","未選択（自由投稿になります）。問題について聞きたい場合は下の検索から選択してください。"));}
   updQ();
   var qs=el("input");qs.type="text";qs.placeholder="問題文のキーワードで検索して選択";card.appendChild(qs);
   var qres=el("div");card.appendChild(qres);
   qs.addEventListener("input",function(){qres.innerHTML="";var kw=norm(qs.value);if(!kw)return;
     allQuestions().filter(function(q){return norm(q.question).indexOf(kw)>=0;}).slice(0,6).forEach(function(q){
-      var b=el("button","btn sec",escapeHtml(q.question.slice(0,60)));b.type="button";b.style.cssText="display:block;width:100%;text-align:left;margin:2px 0";
-      b.onclick=function(){selQid=q.id;qs.value="";qres.innerHTML="";updQ();};qres.appendChild(b);});});
+      var wrap=el("div");wrap.style.margin="2px 0";
+      var rw=el("div","row");rw.style.cssText="gap:6px;align-items:stretch;flex-wrap:nowrap";
+      var b=el("button","btn sec",escapeHtml(q.question.slice(0,60))+(q.question.length>60?"…":""));b.type="button";b.style.cssText="flex:1;text-align:left";
+      b.onclick=function(){selQid=q.id;qs.value="";qres.innerHTML="";updQ();toast("問題を選択しました");};
+      var tg=el("button","btn sec","▼ 全文");tg.type="button";tg.style.whiteSpace="nowrap";
+      var det=el("div");det.style.cssText="display:none;padding:6px;background:var(--bg);border-radius:6px;margin:2px 0";
+      tg.onclick=function(){
+        if(det.style.display==="none"){
+          if(!det.innerHTML){
+            det.appendChild(el("div","small muted",TYPE[q.type]+" ｜ "+DIFF[q.difficulty]+" ｜ "+(q.category||[]).join(", ")));
+            det.appendChild(el("div",null,fmtQ(q)));
+            var sel2=el("button","btn","✅ この問題を選択");sel2.type="button";sel2.style.marginTop="6px";
+            sel2.onclick=function(){selQid=q.id;qs.value="";qres.innerHTML="";updQ();toast("問題を選択しました");};
+            det.appendChild(sel2);typeset(det);
+          }
+          det.style.display="";tg.textContent="▲ 閉じる";
+        }else{det.style.display="none";tg.textContent="▼ 全文";}
+      };
+      rw.appendChild(b);rw.appendChild(tg);wrap.appendChild(rw);wrap.appendChild(det);qres.appendChild(wrap);});});
   card.appendChild(el("label",null,"件名"));
   var ti=el("input");ti.type="text";ti.placeholder="例: この問題の選択肢2がなぜ誤りか分かりません";ti.value=editPost?(editPost.title||""):"";card.appendChild(ti);
   card.appendChild(el("label",null,"本文（URLは自動でリンクになります）"));
