@@ -983,7 +983,7 @@ function confirmYesNo(title,msg){
   });
 }
 function flipMove(wrap,mutate){
-  var els=[].slice.call(wrap.querySelectorAll(".chip"));
+  var els=[].slice.call(wrap.querySelectorAll(".chip")).filter(function(e){return !e.classList.contains("dragging");});
   var first=els.map(function(e){return e.getBoundingClientRect();});
   mutate();
   els.forEach(function(e,i){
@@ -993,6 +993,12 @@ function flipMove(wrap,mutate){
   });
   requestAnimationFrame(function(){els.forEach(function(e){e.style.transition="transform .18s ease";e.style.transform="";});});
 }
+function catXbBadge(cc){
+  var xbg=el("span","xb","✕");
+  xbg.addEventListener("pointerdown",function(ev){ev.stopPropagation();});
+  xbg.addEventListener("click",async function(ev){ev.stopPropagation();ev.preventDefault();var ok=await confirmYesNo("カテゴリの削除","「"+cc+"」を出題設定から削除しますか？（問題そのものは削除されません）");if(!ok)return;var l=catsForGenre().filter(function(x){return x!==cc;});saveCatOrder(l);toast(cc+" を削除しました");renderHome();});
+  return xbg;
+}
 function wireCatChip(chip,cat,wrap){
   var lpTimer=null,startX=0,startY=0,suppressClick=false;
   chip.style.touchAction="none";
@@ -1000,8 +1006,16 @@ function wireCatChip(chip,cat,wrap){
   chip.addEventListener("pointerdown",function(ev){
     if(ev.target&&ev.target.classList&&ev.target.classList.contains("xb"))return;
     startX=ev.clientX;startY=ev.clientY;
-    if(catEditMode){startDrag(ev);return;}
-    lpTimer=setTimeout(function(){lpTimer=null;suppressClick=true;catEditMode=true;if(navigator.vibrate)navigator.vibrate(30);renderHome();},500);
+    if(catEditMode){startDrag(ev,false);return;}
+    lpTimer=setTimeout(function(){
+      lpTimer=null;suppressClick=true;catEditMode=true;
+      if(navigator.vibrate)navigator.vibrate(30);
+      [].forEach.call(wrap.querySelectorAll(".chip"),function(c2){
+        c2.classList.add("editing");
+        if(!c2.querySelector(".xb"))c2.appendChild(catXbBadge(c2.dataset.cat));
+      });
+      startDrag(ev,true);
+    },500);
   });
   chip.addEventListener("pointermove",function(ev){
     if(lpTimer&&(Math.abs(ev.clientX-startX)>8||Math.abs(ev.clientY-startY)>8)){clearTimeout(lpTimer);lpTimer=null;}
@@ -1009,14 +1023,17 @@ function wireCatChip(chip,cat,wrap){
   chip.addEventListener("pointerup",function(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}});
   chip.addEventListener("pointercancel",function(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}});
   chip.addEventListener("click",function(ev){
+    if(suppressClick){suppressClick=false;ev.preventDefault();ev.stopPropagation();return;}
     if(catEditMode){ev.preventDefault();ev.stopPropagation();if(_catDragged){_catDragged=false;return;}catEditMode=false;renderHome();return;}
-    if(suppressClick){suppressClick=false;ev.preventDefault();return;}
     if(filter.cats.has(cat))filter.cats.delete(cat);else filter.cats.add(cat);
     renderHome();
   });
-  function startDrag(ev){
+  function startDrag(ev,fromLP){
     var dragging=chip,moved=false;
+    var r0=dragging.getBoundingClientRect();
+    var grabX=ev.clientX-r0.left,grabY=ev.clientY-r0.top;
     wrap.classList.add("dragmode");dragging.classList.add("dragging");
+    try{if(chip.setPointerCapture)chip.setPointerCapture(ev.pointerId);}catch(e2){}
     function onMove(e){
       if(Math.abs(e.clientX-startX)>4||Math.abs(e.clientY-startY)>4)moved=true;
       var t0=document.elementFromPoint(e.clientX,e.clientY);
@@ -1026,15 +1043,22 @@ function wireCatChip(chip,cat,wrap){
         var ref=(e.clientX<rc.left+rc.width/2)?t:t.nextSibling;
         if(ref!==dragging&&ref!==dragging.nextSibling)flipMove(wrap,function(){wrap.insertBefore(dragging,ref);});
       }
+      dragging.style.transition="none";dragging.style.transform="";
+      var rl=dragging.getBoundingClientRect();
+      dragging.style.transform="translate("+(e.clientX-grabX-rl.left)+"px,"+(e.clientY-grabY-rl.top)+"px)";
     }
     function onUp(){
       document.removeEventListener("pointermove",onMove);
       document.removeEventListener("pointerup",onUp);
+      document.removeEventListener("pointercancel",onUp);
+      dragging.style.transform="";dragging.style.transition="";
       dragging.classList.remove("dragging");wrap.classList.remove("dragmode");
       if(moved){_catDragged=true;var order=[].map.call(wrap.querySelectorAll(".chip"),function(x){return x.dataset.cat;});saveCatOrder(order);renderHome();}
+      else if(fromLP){renderHome();}
     }
     document.addEventListener("pointermove",onMove);
     document.addEventListener("pointerup",onUp);
+    document.addEventListener("pointercancel",onUp);
   }
 }
 function openCatManager(){
@@ -1152,7 +1176,7 @@ function renderHome(){
   const catWrap=el("div","row catwrap");
   cats.forEach(c=>{const chip=el("span","chip"+(filter.cats.has(c)?" on":"")+(catEditMode?" editing":""),escapeHtml(c));
     chip.dataset.cat=c;
-    if(catEditMode){var xbg=el("span","xb","✕");xbg.addEventListener("pointerdown",function(ev){ev.stopPropagation();});xbg.addEventListener("click",(function(cc){return async function(ev){ev.stopPropagation();ev.preventDefault();var ok=await confirmYesNo("カテゴリの削除","「"+cc+"」を出題設定から削除しますか？（問題そのものは削除されません）");if(!ok)return;var l=catsForGenre().filter(function(x){return x!==cc;});saveCatOrder(l);toast(cc+" を削除しました");renderHome();};})(c));chip.appendChild(xbg);}
+    if(catEditMode)chip.appendChild(catXbBadge(c));
     if(!isGuest())wireCatChip(chip,c,catWrap);else chip.onclick=()=>{filter.cats.has(c)?filter.cats.delete(c):filter.cats.add(c);renderHome();};
     catWrap.appendChild(chip);});
   card.appendChild(catWrap);
