@@ -54,7 +54,8 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
   .btn:disabled{opacity:.45;cursor:not-allowed}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);
-    border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;user-select:none}
+    border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;user-select:none;
+    -webkit-user-select:none;-webkit-touch-callout:none}
   .chip.on{background:var(--accent);color:#06141f;border-color:var(--accent);font-weight:600}
   @keyframes dqwig{0%{transform:rotate(-1.6deg)}50%{transform:rotate(1.6deg)}100%{transform:rotate(-1.6deg)}}
   .chip.editing{animation:dqwig .18s infinite;position:relative;overflow:visible}
@@ -133,6 +134,7 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
     <button data-view="stats">成績</button>
     <button data-view="approve">承認待ち</button>
     <button data-view="rank">ランキング</button>
+    <button data-view="board">掲示板</button>
     <button data-view="cost">料金</button>
     <button data-view="settings">設定</button>
   </nav>
@@ -161,7 +163,8 @@ const LS_DELQ="dq_delq_v1";
 const LS_LIKES="dq_likes_v1";
 const LS_GENRES="dq_genres_v1", LS_CURGENRE="dq_curgenre_v1";
 const LS_CATORDER="dq_catorder_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ,LS_LIKES,LS_GENRES,LS_CATORDER]);
+const LS_BOARD="dq_board_v1", LS_BANS="dq_bans_v1", LS_BLIKES="dq_blikes_v1", LS_BFAV="dq_bfav_v1", LS_BDEL="dq_bdel_v1", LS_BSEEN="dq_bseen_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ,LS_LIKES,LS_GENRES,LS_CATORDER,LS_BOARD,LS_BANS,LS_BLIKES,LS_BFAV,LS_BDEL]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -595,6 +598,11 @@ let likes=store.get(LS_LIKES,{});
 let genres=store.get(LS_GENRES,["ディスプレイ関連"]);if(!Array.isArray(genres)||!genres.length)genres=["ディスプレイ関連"];
 let currentGenre=localStorage.getItem(LS_CURGENRE)||genres[0];if(genres.indexOf(currentGenre)<0)currentGenre=genres[0];
 let catOrder=store.get(LS_CATORDER,{});
+let boardPosts=store.get(LS_BOARD,[]);
+let boardAns=store.get(LS_BANS,[]);
+let bLikes=store.get(LS_BLIKES,{});
+let bFav=store.get(LS_BFAV,{});
+let bDel=new Set(store.get(LS_BDEL,[]));
 let users=store.get(LS_USERS,[]);
 let currentUser=localStorage.getItem(LS_CURUSER)||"";
 let progByU=store.get(LS_PROGBYU,{});
@@ -771,13 +779,13 @@ function exportBackup(){
 function importBackup(bk,replace){
   if(!bk||typeof bk!=="object"){toast("バックアップの形式が不正です");return;}
   var data=bk.data?bk.data:bk;
-  if(replace){userQ=[];hidden=new Set();hiddenLog={};usage=[];feedback=[];users=[];selection=[];qfeedback=[];aiExp={};progByU={};histByU={};collByU={};notesByU={};issueOK=new Set();fbDone=new Set();delQ=new Set();likes={};genres=["ディスプレイ関連"];}
+  if(replace){userQ=[];hidden=new Set();hiddenLog={};usage=[];feedback=[];users=[];selection=[];qfeedback=[];aiExp={};progByU={};histByU={};collByU={};notesByU={};issueOK=new Set();fbDone=new Set();delQ=new Set();likes={};boardPosts=[];boardAns=[];bLikes={};bFav={};bDel=new Set();genres=["ディスプレイ関連"];}
   mergeCloud(data);
   if(bk.currentGenre&&genres.indexOf(bk.currentGenre)>=0){currentGenre=bk.currentGenre;localStorage.setItem(LS_CURGENRE,currentGenre);}
   if(bk.currentUser&&users.some(function(u){return u.id===bk.currentUser;})){currentUser=bk.currentUser;localStorage.setItem(LS_CURUSER,currentUser);}
   toast("復元しました。再読み込みします…");setTimeout(function(){location.reload();},600);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null),catOrder:catOrder};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null),catOrder:catOrder,board:boardPosts,bans:boardAns,bLikes:bLikes,bFav:bFav,bDel:[...bDel]};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -820,6 +828,12 @@ async function cloudPull(){
 function mergeCloud(cloud){
   if(!cloud||typeof cloud!=="object")return;
   (cloud.delQ||[]).forEach(function(id){delQ.add(id);});
+  (cloud.bDel||[]).forEach(function(id){bDel.add(id);});
+  function mLikeMap(loc,cl){cl=cl||{};Object.keys(cl).forEach(function(k){loc[k]=loc[k]||{};Object.keys(cl[k]).forEach(function(uid){var c=cl[k][uid],l=loc[k][uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))loc[k][uid]=c;});});}
+  mLikeMap(bLikes,cloud.bLikes);mLikeMap(bFav,cloud.bFav);
+  function mByIdB(loc,cl){var mp={};(loc||[]).forEach(function(x){if(x&&x.id&&!bDel.has(x.id))mp[x.id]=x;});(cl||[]).forEach(function(x){if(!x||!x.id||bDel.has(x.id))return;var ex=mp[x.id];if(!ex||((x.updatedAt||0)>(ex.updatedAt||0)))mp[x.id]=x;});return Object.values(mp);}
+  boardPosts=mByIdB(boardPosts,cloud.board);
+  boardAns=mByIdB(boardAns,cloud.bans);
   var clk=cloud.likes||{};Object.keys(clk).forEach(function(qid){likes[qid]=likes[qid]||{};Object.keys(clk[qid]).forEach(function(uid){var c=clk[qid][uid],l=likes[qid][uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))likes[qid][uid]=c;});});
   (cloud.genres||[]).forEach(function(g){if(genres.indexOf(g)<0)genres.push(g);});
   if(cloud.genrePub)settings.genrePub=Object.assign({},settings.genrePub||{},cloud.genrePub);if(cloud.snap&&!settings.snap)settings.snap=cloud.snap;
@@ -880,6 +894,11 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_LIKES,JSON.stringify(likes));
   localStorage.setItem(LS_GENRES,JSON.stringify(genres));
   localStorage.setItem(LS_CATORDER,JSON.stringify(catOrder));
+  localStorage.setItem(LS_BOARD,JSON.stringify(boardPosts));
+  localStorage.setItem(LS_BANS,JSON.stringify(boardAns));
+  localStorage.setItem(LS_BLIKES,JSON.stringify(bLikes));
+  localStorage.setItem(LS_BFAV,JSON.stringify(bFav));
+  localStorage.setItem(LS_BDEL,JSON.stringify([...bDel]));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
 function inGenre(q){return (q.genre||"ディスプレイ関連")===currentGenre;}
@@ -977,6 +996,7 @@ function flipMove(wrap,mutate){
 function wireCatChip(chip,cat,wrap){
   var lpTimer=null,startX=0,startY=0,suppressClick=false;
   chip.style.touchAction="none";
+  chip.addEventListener("contextmenu",function(ev){ev.preventDefault();});
   chip.addEventListener("pointerdown",function(ev){
     if(ev.target&&ev.target.classList&&ev.target.classList.contains("xb"))return;
     startX=ev.clientX;startY=ev.clientY;
@@ -1095,8 +1115,9 @@ function render(view){
   else if(view==="cost")renderCost();
   else if(view==="approve")renderApprovals();
   else if(view==="rank")renderRanking();
+  else if(view==="board")renderBoard();
   else if(view==="settings")renderSettings();
-  setNav(view);applyNavPerms();applyGuestLock(view);
+  setNav(view);applyNavPerms();applyGuestLock(view);updateBoardBadge();
 }
 
 /* ====================== 出題設定画面 ====================== */
@@ -1402,6 +1423,9 @@ function afterAnswer(q,correct,area){
   var likeBtn=el("button","btn sec",(userLiked(q.id)?"♥ いいね済 ":"♡ いいね ")+"("+likeCount(q.id)+")");
   likeBtn.onclick=function(){toggleLike(q.id);likeBtn.textContent=(userLiked(q.id)?"♥ いいね済 ":"♡ いいね ")+"("+likeCount(q.id)+")";};
   aiRow.appendChild(likeBtn);
+  var boardBtn=el("button","btn sec","💬 掲示板で質問");
+  boardBtn.onclick=function(){openBoardPostForm(q.id);};
+  aiRow.appendChild(boardBtn);
   if(isGuest())aiRow.style.display="none";
   var repBtn=el("button","btn sec","⚠ 問題を報告・修正");
   aiRow.appendChild(repBtn);exp.appendChild(aiRow);
@@ -2470,7 +2494,7 @@ async function loadGuestSnapshot(snapId){
   }catch(e){return false;}
 }
 function isGuest(){return localStorage.getItem("dq_guest")==="1";}
-function applyGuestLock(view){if(!isGuest()||view==="home"||view==="")return;var m=$("#main");if(!m)return;var bn=el("div","card");bn.style.cssText="border:1px solid var(--accent)";bn.innerHTML="👀 <b>ゲストモード</b>：このタブは閲覧のみです。クイズは「出題」タブから挑戦できます。";m.insertBefore(bn,m.firstChild);[].forEach.call(m.querySelectorAll("button,input,select,textarea,label.btn,a.btn"),function(x){x.disabled=true;x.style.pointerEvents="none";x.style.opacity="0.55";});}
+function applyGuestLock(view){if(!isGuest()||view==="home"||view==="board"||view==="")return;var m=$("#main");if(!m)return;var bn=el("div","card");bn.style.cssText="border:1px solid var(--accent)";bn.innerHTML="👀 <b>ゲストモード</b>：このタブは閲覧のみです。クイズは「出題」タブから挑戦できます。";m.insertBefore(bn,m.firstChild);[].forEach.call(m.querySelectorAll("button,input,select,textarea,label.btn,a.btn"),function(x){x.disabled=true;x.style.pointerEvents="none";x.style.opacity="0.55";});}
 function applyNavPerms(){var g=isGuest();[].forEach.call(nav.children,function(b){var v=b.dataset.view;if(g){b.style.display=(v==="settings")?"none":"";return;}if(v==="gen"||v==="manage"||v==="settings")b.style.display=hasPerm(v)?"":"none";else if(v==="approve")b.style.display=iAmReviewer()?"":"none";});}
 var _rankN=10;
 function startRankQuiz(qs){if(!qs||!qs.length)return;session={qs:qs.slice(),idx:0,correct:0,results:[],exam:false};setNav("");showQuestion();}
@@ -2496,7 +2520,7 @@ function renderApprovals(){
   var card=el("div","card");card.appendChild(el("h2",null,"✅ 承認待ちリスト"));
   card.appendChild(el("p","small muted","部下（あなたを上長に設定したユーザー）が作成した問題、または全体の未承認問題です。承認すると出題対象になります。"));
   var list=pendingForMe();
-  if(!list.length){card.appendChild(el("p","muted","承認待ちの問題はありません。"));m.appendChild(card);return;}
+  if(!list.length){card.appendChild(el("p","muted","承認待ちの問題はありません。"));}
   list.forEach(function(q){
     var it=el("div","genitem");var au=userById(q.author);
     it.appendChild(el("div","small muted","作成者: "+userDisplay(au)+" ｜ "+TYPE[q.type]+" ｜ "+(q.category||[]).join(", ")));
@@ -2508,6 +2532,304 @@ function renderApprovals(){
     var edb=el("button","btn sec","✏ 編集");edb.onclick=(function(id){return function(){editUserQuestion(id);};})(q.id);
     rr.appendChild(apv);rr.appendChild(rej);rr.appendChild(edb);it.appendChild(rr);card.appendChild(it);
   });
+  m.appendChild(card);
+  appendBoardApprovals(m);
+  updateBoardBadge();
+}
+/* ====================== 掲示板 ====================== */
+function saveBoard(){store.set(LS_BOARD,boardPosts);}
+function saveBans(){store.set(LS_BANS,boardAns);}
+function saveBLikes(){store.set(LS_BLIKES,bLikes);}
+function saveBFav(){store.set(LS_BFAV,bFav);}
+function saveBDel(){store.set(LS_BDEL,[...bDel]);}
+function bSeenGet(){var mp={};try{mp=JSON.parse(localStorage.getItem(LS_BSEEN)||"{}");}catch(e){}return mp[currentUser]||{};}
+function bSeenMark(pid){var mp={};try{mp=JSON.parse(localStorage.getItem(LS_BSEEN)||"{}");}catch(e){}(mp[currentUser]=mp[currentUser]||{})[pid]=Date.now();localStorage.setItem(LS_BSEEN,JSON.stringify(mp));}
+function bAnsLikeCount(aid){var o=bLikes[aid];if(!o)return 0;var n=0;Object.keys(o).forEach(function(u){if(o[u]&&o[u].v)n++;});return n;}
+function bUserLikedAns(aid){return !!(bLikes[aid]&&bLikes[aid][currentUser]&&bLikes[aid][currentUser].v);}
+function bToggleAnsLike(aid){var c=bUserLikedAns(aid);bLikes[aid]=bLikes[aid]||{};bLikes[aid][currentUser]={v:c?0:1,t:Date.now()};saveBLikes();}
+function bFavCount(pid){var o=bFav[pid];if(!o)return 0;var n=0;Object.keys(o).forEach(function(u){if(o[u]&&o[u].v)n++;});return n;}
+function bUserFaved(pid){return !!(bFav[pid]&&bFav[pid][currentUser]&&bFav[pid][currentUser].v);}
+function bToggleFav(pid){var c=bUserFaved(pid);bFav[pid]=bFav[pid]||{};bFav[pid][currentUser]={v:c?0:1,t:Date.now()};saveBFav();}
+function bPostAnswers(pid){return boardAns.filter(function(a){return a&&a.postId===pid&&!bDel.has(a.id);});}
+function bApprovedAnswers(pid){return bPostAnswers(pid).filter(function(a){return a.approval==="approved";});}
+function bTopAnswers(pid){return bApprovedAnswers(pid).filter(function(a){return !a.parentId;});}
+function bVisibleAnswers(pid){return bPostAnswers(pid).filter(function(a){return a.approval==="approved"||a.uid===currentUser||isAdmin();}).sort(function(a,b){return (a.t||0)-(b.t||0);});}
+function bPostLikeTotal(pid){var n=0;bApprovedAnswers(pid).forEach(function(a){n+=bAnsLikeCount(a.id);});return n;}
+function bVisiblePosts(){return boardPosts.filter(function(p){return p&&p.id&&!bDel.has(p.id)&&(p.approval==="approved"||p.uid===currentUser||isAdmin());});}
+function boardName(uid,anon){if(anon)return "🕶 匿名";var u=userById(uid);return u?u.name:"退会ユーザー";}
+function boardPendingForMe(){var me=currentUser,adm=isAdmin();function fpm(x){if(!x||x.approval!=="pending"||x.parentId||bDel.has(x.id))return false;if(adm)return true;var au=userById(x.uid);return !!(au&&au.supervisor===me);}return {posts:boardPosts.filter(fpm),answers:boardAns.filter(fpm)};}
+function findQById(id){return allQuestions().filter(function(q){return q.id===id;})[0];}
+function qAuthorUid(q){return (q&&q.author&&q.author!=="ai")?q.author:null;}
+function boardMyNotices(){var seen=bSeenGet();return boardPosts.filter(function(p){if(!p||bDel.has(p.id)||p.approval!=="approved"||!p.qid||p.uid===currentUser)return false;if(seen[p.id])return false;var q=findQById(p.qid);return !!(q&&qAuthorUid(q)===currentUser);});}
+function updateBoardBadge(){try{
+  var bb=nav.querySelector('button[data-view="board"]');
+  if(bb){var n=isGuest()?0:boardMyNotices().length;bb.textContent="掲示板"+(n?("("+n+")"):"");}
+  var ab=nav.querySelector('button[data-view="approve"]');
+  if(ab){var pn=0;if(!isGuest()&&iAmReviewer()){var bp=boardPendingForMe();pn=pendingForMe().length+bp.posts.length+bp.answers.length;}ab.textContent="承認待ち"+(pn?("("+pn+")"):"");}
+}catch(e){}}
+function bRichBody(s){var h=escapeHtml(s||"");h=h.replace(/(https?:\/\/[^\s<>&"']+)/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+"</a>";});return h.replace(/\n/g,"<br>");}
+function bLinksHtml(links){return "📎 "+links.map(function(x){return '<a href="'+escapeHtml(x.url)+'" target="_blank" rel="noopener">'+escapeHtml(x.label||x.url)+"</a>";}).join(" ｜ ");}
+function bAttachEditor(){
+  var wrap=el("div");
+  wrap.appendChild(el("label",null,"図・画像（任意）"));
+  var hint=el("p","small muted","SVG/HTMLを直接貼るか、画像URLを挿入できます。画像ファイルは下の欄にドラッグ＆ドロップでも追加できます。");hint.style.margin="2px 0";wrap.appendChild(hint);
+  var fig=el("textarea");fig.placeholder='例: <img src="https://.../zu.png"> や <svg>…</svg>';fig.style.minHeight="60px";wrap.appendChild(fig);
+  var r1=el("div","row");r1.style.marginTop="4px";
+  var iu=el("input");iu.type="text";iu.placeholder="画像URL（https://.../xxx.png）";iu.style.flex="1";
+  var ib=el("button","btn sec","🖼 画像URLを挿入");ib.type="button";
+  ib.onclick=function(){var u=iu.value.trim();if(!u){toast("画像URLを入力してください");return;}fig.value=(fig.value?fig.value+"\n":"")+'<img src="'+u+'" style="max-width:100%">';iu.value="";};
+  r1.appendChild(iu);r1.appendChild(ib);wrap.appendChild(r1);
+  fig.addEventListener("dragover",function(e){e.preventDefault();});
+  fig.addEventListener("drop",function(e){e.preventDefault();var f=e.dataTransfer.files&&e.dataTransfer.files[0];if(!f||!/^image\//.test(f.type))return;var fr=new FileReader();fr.onload=function(){if(fr.result.length>1500000&&!confirm("画像が大きめです（1.5MB超）。同期データが重くなりますが追加しますか？"))return;fig.value=(fig.value?fig.value+"\n":"")+'<img src="'+fr.result+'" style="max-width:100%">';};fr.readAsDataURL(f);});
+  var lb2=el("label",null,"参考リンク（任意）");lb2.style.marginTop="8px";wrap.appendChild(lb2);
+  var links=[];var ld=el("div","small muted");wrap.appendChild(ld);
+  function drawL(){ld.innerHTML="";links.forEach(function(x,i){var d=el("div",null,"📎 "+escapeHtml(x.label||x.url)+" ");var xb=el("button","btn sec","解除");xb.type="button";xb.style.cssText="padding:1px 8px;font-size:11px";xb.onclick=function(){links.splice(i,1);drawL();};d.appendChild(xb);ld.appendChild(d);});}
+  var r2=el("div","row");
+  var ll=el("input");ll.type="text";ll.placeholder="表示名（例: 参考記事）";ll.style.flex="1";
+  var lu=el("input");lu.type="text";lu.placeholder="https://...";lu.style.flex="2";
+  var la=el("button","btn sec","＋ 追加");la.type="button";
+  la.onclick=function(){var u=lu.value.trim();if(!u){toast("URLを入力してください");return;}links.push({label:ll.value.trim()||u,url:u});ll.value="";lu.value="";drawL();};
+  r2.appendChild(ll);r2.appendChild(lu);r2.appendChild(la);wrap.appendChild(r2);
+  return {node:wrap,getFigure:function(){return fig.value.trim();},getLinks:function(){return links.slice();},
+    setFigure:function(v){fig.value=v||"";},setLinks:function(v){links=(v||[]).slice();drawL();}};
+}
+var _boardSort="new",_boardFilter="all",_boardKw="";
+var _bOpenThreads=new Set();
+function openBoardPostForm(qid,editPost){
+  if(isGuest()){render("board");return;}
+  var m=$("#main");m.innerHTML="";_view="board";setNav("board");
+  var card=el("div","card");
+  card.appendChild(el("h2",null,editPost?"✏ 投稿を修正して再申請":"💬 掲示板に投稿"));
+  var back=el("button","btn sec","← 掲示板に戻る");back.onclick=function(){renderBoard();};card.appendChild(back);
+  card.appendChild(el("p","small muted","投稿は上長の承認後に全員へ公開されます（上長が未設定の場合は管理者が承認します）。問題への疑問でも、自由な質問・相談でもOKです。"));
+  card.appendChild(el("label",null,"関連する問題（任意）"));
+  var selQid=editPost?(editPost.qid||""):(qid||"");
+  var qNow=el("div","small muted");card.appendChild(qNow);
+  function updQ(){qNow.innerHTML="";var q=selQid?findQById(selQid):null;
+    if(q){qNow.appendChild(el("span",null,"🔗 "+escapeHtml(q.question.slice(0,70))+" "));var cb=el("button","btn sec","解除");cb.type="button";cb.style.cssText="padding:1px 8px;font-size:11px";cb.onclick=function(){selQid="";updQ();};qNow.appendChild(cb);}
+    else if(selQid){qNow.textContent="🔗 （削除済みの問題: "+selQid+"）";}
+    else qNow.textContent="未選択（自由投稿になります）";}
+  updQ();
+  var qs=el("input");qs.type="text";qs.placeholder="問題文のキーワードで検索して選択";card.appendChild(qs);
+  var qres=el("div");card.appendChild(qres);
+  qs.addEventListener("input",function(){qres.innerHTML="";var kw=norm(qs.value);if(!kw)return;
+    allQuestions().filter(function(q){return norm(q.question).indexOf(kw)>=0;}).slice(0,6).forEach(function(q){
+      var b=el("button","btn sec",escapeHtml(q.question.slice(0,60)));b.type="button";b.style.cssText="display:block;width:100%;text-align:left;margin:2px 0";
+      b.onclick=function(){selQid=q.id;qs.value="";qres.innerHTML="";updQ();};qres.appendChild(b);});});
+  card.appendChild(el("label",null,"件名"));
+  var ti=el("input");ti.type="text";ti.placeholder="例: この問題の選択肢2がなぜ誤りか分かりません";ti.value=editPost?(editPost.title||""):"";card.appendChild(ti);
+  card.appendChild(el("label",null,"本文（URLは自動でリンクになります）"));
+  var ta=el("textarea");ta.style.minHeight="110px";ta.placeholder="疑問点や聞きたいことを具体的に。";ta.value=editPost?(editPost.body||""):"";card.appendChild(ta);
+  var att=bAttachEditor();card.appendChild(att.node);
+  if(editPost){att.setFigure(editPost.figure||"");att.setLinks(editPost.links||[]);}
+  var an=el("label","row");an.style.cssText="align-items:center;gap:8px;color:var(--txt);margin-top:10px";
+  var ac=el("input");ac.type="checkbox";ac.style.width="auto";ac.checked=!!(editPost&&editPost.anon);
+  an.appendChild(ac);an.appendChild(document.createTextNode("名前を伏せて投稿する（匿名）※承認する上長には実名が表示されます"));card.appendChild(an);
+  var rr=el("div","row");rr.style.marginTop="10px";
+  var sb=el("button","btn","📤 承認を依頼する");
+  sb.onclick=function(){
+    var t=ti.value.trim(),b=ta.value.trim();
+    if(!t){toast("件名を入力してください");return;}
+    if(!b){toast("本文を入力してください");return;}
+    if(editPost){editPost.qid=selQid||"";editPost.title=t;editPost.body=b;editPost.figure=att.getFigure();editPost.links=att.getLinks();editPost.anon=ac.checked?1:0;editPost.approval="pending";editPost.rejectReason="";editPost.updatedAt=Date.now();saveBoard();toast("再申請しました。上長の承認後に公開されます");}
+    else{var p={id:"bp"+Date.now()+Math.random().toString(36).slice(2,6),t:Date.now(),uid:currentUser,anon:ac.checked?1:0,qid:selQid||"",title:t,body:b,figure:att.getFigure(),links:att.getLinks(),approval:"pending",updatedAt:Date.now()};
+      boardPosts.push(p);saveBoard();toast("投稿しました。上長の承認後に公開されます");}
+    updateBoardBadge();renderBoard();
+  };
+  rr.appendChild(sb);card.appendChild(rr);m.appendChild(card);
+}
+function renderBoard(){
+  var m=$("#main");m.innerHTML="";_view="board";appendSyncBar(m);
+  if(!isGuest()){
+    var nts=boardMyNotices();
+    if(nts.length){var nc=el("div","card");nc.style.border="1px solid var(--accent)";
+      nc.appendChild(el("h2",null,"📣 あなたが作った問題に質問が届いています"));
+      nts.forEach(function(p){var b=el("button","btn sec","💬 "+(p.title||"（無題）").slice(0,50));b.style.cssText="display:block;width:100%;text-align:left;margin:3px 0";b.onclick=function(){openBoardPost(p.id);};nc.appendChild(b);});
+      m.appendChild(nc);}
+  }
+  var ctrl=el("div","card");
+  ctrl.appendChild(el("h2",null,"💬 掲示板"));
+  ctrl.appendChild(el("p","small muted","問題の疑問点も、自由な質問・相談もOK。投稿・回答は上長の承認後に公開されます（スレッド内の返信は承認不要ですぐ公開）。回答への❤いいね・投稿の⭐お気に入り（問題のコレクションとは別）ができます。"));
+  if(!isGuest()){var nb=el("button","btn","＋ 新規投稿");nb.onclick=function(){openBoardPostForm("");};ctrl.appendChild(nb);}
+  var r=el("div","row");r.style.cssText="margin-top:8px;align-items:center;flex-wrap:wrap";
+  var so=el("select");[["new","🕒 新着順"],["like","❤️ いいねが多い順"],["fav","⭐ お気に入りが多い順"],["ans","💬 回答が多い順"]].forEach(function(o){var op=el("option");op.value=o[0];op.textContent=o[1];so.appendChild(op);});
+  so.value=_boardSort;so.onchange=function(){_boardSort=so.value;renderBoard();};
+  var fo=el("select");[["all","すべて"],["q","問題に関する質問"],["free","フリー投稿"],["mine","自分の投稿"],["fav","⭐ お気に入りのみ"]].forEach(function(o){var op=el("option");op.value=o[0];op.textContent=o[1];fo.appendChild(op);});
+  fo.value=_boardFilter;fo.onchange=function(){_boardFilter=fo.value;renderBoard();};
+  var kw=el("input");kw.type="text";kw.placeholder="キーワード検索";kw.value=_boardKw;kw.style.flex="1";
+  kw.addEventListener("change",function(){_boardKw=kw.value;renderBoard();});
+  r.appendChild(so);r.appendChild(fo);r.appendChild(kw);ctrl.appendChild(r);
+  m.appendChild(ctrl);
+  var list=bVisiblePosts();
+  if(_boardFilter==="q")list=list.filter(function(p){return !!p.qid;});
+  else if(_boardFilter==="free")list=list.filter(function(p){return !p.qid;});
+  else if(_boardFilter==="mine")list=list.filter(function(p){return p.uid===currentUser;});
+  else if(_boardFilter==="fav")list=list.filter(function(p){return bUserFaved(p.id);});
+  if(_boardKw.trim()){var toks=_boardKw.trim().toLowerCase().split(/[\s　]+/).filter(Boolean).map(norm);
+    list=list.filter(function(p){var h=norm((p.title||"")+" "+(p.body||""));return toks.every(function(x){return h.indexOf(x)>=0;});});}
+  var ranked=(_boardSort==="like"||_boardSort==="fav");
+  if(_boardSort==="like")list.sort(function(a,b){return bPostLikeTotal(b.id)-bPostLikeTotal(a.id)||(b.t||0)-(a.t||0);});
+  else if(_boardSort==="fav")list.sort(function(a,b){return bFavCount(b.id)-bFavCount(a.id)||(b.t||0)-(a.t||0);});
+  else if(_boardSort==="ans")list.sort(function(a,b){return bTopAnswers(b.id).length-bTopAnswers(a.id).length||(b.t||0)-(a.t||0);});
+  else list.sort(function(a,b){return (b.t||0)-(a.t||0);});
+  var lc=el("div","card");lc.appendChild(el("h2",null,ranked?"🏆 投稿ランキング":"投稿一覧"));
+  if(!list.length)lc.appendChild(el("p","muted","投稿はまだありません。「＋ 新規投稿」から最初の質問をどうぞ。"));
+  list.forEach(function(p,i){
+    var it=el("div","genitem");it.style.cursor="pointer";
+    var st=p.approval==="pending"?' <span class="pill" style="color:var(--warn);border-color:var(--warn)">⏳承認待ち</span>':(p.approval==="rejected"?' <span class="pill" style="color:var(--ng);border-color:var(--ng)">↩差し戻し</span>':"");
+    var head=(ranked?('<span style="font-weight:700;color:var(--accent)">#'+(i+1)+"</span> "):"")+"<b>"+escapeHtml(p.title||"（無題）")+"</b>"+st+(p.qid?' <span class="pill">🔗問題</span>':"");
+    it.appendChild(el("div",null,head));
+    it.appendChild(el("div","small muted",boardName(p.uid,p.anon)+" ｜ "+new Date(p.t||0).toLocaleDateString()+" ｜ 💬"+bTopAnswers(p.id).length+" ｜ ❤"+bPostLikeTotal(p.id)+" ｜ ⭐"+bFavCount(p.id)));
+    it.onclick=function(){openBoardPost(p.id);};
+    lc.appendChild(it);
+  });
+  m.appendChild(lc);
+  updateBoardBadge();
+}
+function openBoardPost(pid){
+  var m=$("#main");m.innerHTML="";_view="board";setNav("board");
+  var p=boardPosts.filter(function(x){return x.id===pid;})[0];
+  if(!p||bDel.has(p.id)){toast("投稿が見つかりません");renderBoard();return;}
+  if(!isGuest())bSeenMark(p.id);updateBoardBadge();
+  var card=el("div","card");
+  var back=el("button","btn sec","← 掲示板に戻る");back.onclick=function(){renderBoard();};card.appendChild(back);
+  card.appendChild(el("h2",null,"💬 "+escapeHtml(p.title||"（無題）")));
+  if(p.approval==="pending")card.appendChild(el("p","small",'<span class="pill" style="color:var(--warn);border-color:var(--warn)">⏳承認待ち</span> 上長の承認後に全員へ公開されます。'));
+  if(p.approval==="rejected"){card.appendChild(el("p","small",'<span class="pill" style="color:var(--ng);border-color:var(--ng)">↩差し戻し</span> 理由: '+escapeHtml(p.rejectReason||"")));}
+  card.appendChild(el("div","small muted","投稿: "+boardName(p.uid,p.anon)+" ｜ "+new Date(p.t||0).toLocaleString()));
+  if(p.qid){var q=findQById(p.qid);var qc=el("div","genitem");
+    if(q){qc.appendChild(el("div","small muted","🔗 関連する問題"+authorMetaHtml(q)));qc.appendChild(el("div",null,fmtQ(q)));
+      var sv=el("button","btn sec","▶ この問題を解く");sv.style.marginTop="6px";sv.onclick=function(){startRankQuiz([q]);};qc.appendChild(sv);}
+    else qc.appendChild(el("div","small muted","🔗 関連問題（削除済み）"));
+    card.appendChild(qc);}
+  card.appendChild(el("div",null,'<div style="margin:10px 0">'+bRichBody(p.body)+"</div>"));
+  if(p.figure)card.appendChild(el("div","figbox",p.figure));
+  if(p.links&&p.links.length){var lk=el("div","small muted");lk.innerHTML=bLinksHtml(p.links);card.appendChild(lk);}
+  var tr=el("div","row");tr.style.marginTop="10px";
+  if(!isGuest()){
+    var fv=el("button","btn sec",(bUserFaved(p.id)?"⭐ お気に入り済 ":"☆ お気に入り ")+"("+bFavCount(p.id)+")");
+    fv.onclick=function(){bToggleFav(p.id);fv.textContent=(bUserFaved(p.id)?"⭐ お気に入り済 ":"☆ お気に入り ")+"("+bFavCount(p.id)+")";};
+    tr.appendChild(fv);
+    if(p.uid===currentUser&&p.approval!=="approved"){var eb=el("button","btn sec","✏ 修正して再申請");eb.onclick=function(){openBoardPostForm("",p);};tr.appendChild(eb);}
+    if(p.uid===currentUser||isAdmin()){var rmv=el("button","btn sec","🗑 投稿を削除");
+      rmv.onclick=async function(){var ok=await confirmYesNo("投稿の削除","この投稿と回答を掲示板から削除しますか？（全端末から消えます）");if(!ok)return;bDel.add(p.id);bPostAnswers(p.id).forEach(function(a){bDel.add(a.id);});saveBDel();toast("削除しました");renderBoard();};
+      tr.appendChild(rmv);}
+  }
+  card.appendChild(tr);
+  m.appendChild(card);typeset(card);
+  var ansC=el("div","card");
+  var visAll=bVisibleAnswers(p.id);
+  var visTops=visAll.filter(function(a){return !a.parentId;});
+  var visReps={};visAll.forEach(function(a){if(a.parentId)(visReps[a.parentId]=visReps[a.parentId]||[]).push(a);});
+  ansC.appendChild(el("h2",null,"🗨 回答（"+bTopAnswers(p.id).length+"）"));
+  if(!visTops.length)ansC.appendChild(el("p","muted","まだ回答はありません。最初の回答者になりましょう（誰でも回答できます）。"));
+  function ansItem(a,isReply){
+    var it=el("div","genitem");
+    if(isReply)it.style.cssText="margin-left:22px;border-left:3px solid var(--accent);padding-left:10px";
+    var ast=a.approval==="pending"?' <span class="pill" style="color:var(--warn);border-color:var(--warn)">⏳承認待ち</span>':(a.approval==="rejected"?' <span class="pill" style="color:var(--ng);border-color:var(--ng)">↩差し戻し'+(a.rejectReason?(": "+escapeHtml(a.rejectReason)):"")+'</span>':"");
+    it.appendChild(el("div","small muted",(isReply?"↩ ":"")+boardName(a.uid,a.anon)+" ｜ "+new Date(a.t||0).toLocaleString()+ast));
+    it.appendChild(el("div",null,'<div style="margin:6px 0">'+bRichBody(a.body)+"</div>"));
+    if(a.figure)it.appendChild(el("div","figbox",a.figure));
+    if(a.links&&a.links.length){var lk2=el("div","small muted");lk2.innerHTML=bLinksHtml(a.links);it.appendChild(lk2);}
+    var ar=el("div","row");ar.style.marginTop="6px";
+    if(a.approval==="approved"&&!isGuest()){
+      var lb=el("button","btn sec",(bUserLikedAns(a.id)?"♥ いいね済 ":"♡ いいね ")+"("+bAnsLikeCount(a.id)+")");
+      lb.onclick=(function(aa,bb){return function(){bToggleAnsLike(aa.id);bb.textContent=(bUserLikedAns(aa.id)?"♥ いいね済 ":"♡ いいね ")+"("+bAnsLikeCount(aa.id)+")";};})(a,lb);
+      ar.appendChild(lb);
+    }
+    if(!isGuest()&&(a.uid===currentUser||isAdmin())){var abx=el("button","btn sec","🗑 削除");
+      abx.onclick=(function(aa){return async function(){var ok=await confirmYesNo("回答の削除","この回答を削除しますか？（返信も一緒に消え、全端末から消えます）");if(!ok)return;bDel.add(aa.id);boardAns.forEach(function(y){if(y.parentId===aa.id)bDel.add(y.id);});saveBDel();openBoardPost(p.id);};})(a);
+      ar.appendChild(abx);}
+    it.appendChild(ar);
+    return {node:it,row:ar};
+  }
+  function replyForm(parentA,host){
+    if(host.innerHTML){host.innerHTML="";return;}
+    var fc=el("div");fc.style.cssText="margin:6px 0 10px 22px";
+    var ta2=el("textarea");ta2.style.minHeight="60px";ta2.placeholder="追加の質問・返信を入力（URLは自動でリンクになります）";fc.appendChild(ta2);
+    var attBox=el("div");var att2=null;
+    var atgl=el("button","btn sec","📎 図・リンクを追加");atgl.type="button";atgl.style.marginTop="4px";
+    atgl.onclick=function(){if(att2){attBox.innerHTML="";att2=null;atgl.textContent="📎 図・リンクを追加";return;}att2=bAttachEditor();attBox.appendChild(att2.node);atgl.textContent="📎 添付を閉じる";};
+    fc.appendChild(atgl);fc.appendChild(attBox);
+    var an2=el("label","row");an2.style.cssText="align-items:center;gap:8px;color:var(--txt);margin-top:6px";
+    var ac2=el("input");ac2.type="checkbox";ac2.style.width="auto";an2.appendChild(ac2);an2.appendChild(document.createTextNode("名前を伏せて返信する（匿名）"));fc.appendChild(an2);
+    var rr2=el("div","row");rr2.style.marginTop="6px";
+    var sb2=el("button","btn","📤 返信を公開する");
+    sb2.onclick=function(){var b=ta2.value.trim();if(!b){toast("内容を入力してください");return;}
+      var a={id:"ba"+Date.now()+Math.random().toString(36).slice(2,6),postId:p.id,parentId:parentA.id,t:Date.now(),uid:currentUser,anon:ac2.checked?1:0,body:b,figure:att2?att2.getFigure():"",links:att2?att2.getLinks():[],approval:"approved",updatedAt:Date.now()};
+      boardAns.push(a);saveBans();_bOpenThreads.add(parentA.id);updateBoardBadge();toast("返信を公開しました");openBoardPost(p.id);};
+    rr2.appendChild(sb2);fc.appendChild(rr2);host.appendChild(fc);
+  }
+  visTops.forEach(function(a){
+    var top=ansItem(a,false);
+    ansC.appendChild(top.node);
+    var reps=visReps[a.id]||[];
+    var thWrap=el("div");
+    var rfHost=el("div");
+    if(a.approval==="approved"&&!isGuest()){
+      var rb=el("button","btn sec","↩ 返信（追加で質問する）");
+      rb.onclick=function(){replyForm(a,rfHost);};
+      top.row.appendChild(rb);
+    }
+    if(reps.length){
+      var opened=_bOpenThreads.has(a.id)||reps.length<=2;
+      var tgl=el("button","btn sec");
+      var drawThread=function(){
+        thWrap.innerHTML="";
+        tgl.textContent=opened?("▲ やり取りを折りたたむ（"+reps.length+"件）"):("▼ やり取りを表示（"+reps.length+"件）");
+        if(opened)reps.forEach(function(rp){var ri2=ansItem(rp,true);if(rp.approval==="approved"&&!isGuest()){var rb2=el("button","btn sec","↩ 返信");rb2.onclick=function(){replyForm(a,rfHost);};ri2.row.appendChild(rb2);}thWrap.appendChild(ri2.node);});
+      };
+      tgl.onclick=function(){opened=!opened;if(opened)_bOpenThreads.add(a.id);else _bOpenThreads.delete(a.id);drawThread();typeset(thWrap);};
+      var tglRow=el("div");tglRow.style.cssText="margin:2px 0 4px 22px";tglRow.appendChild(tgl);
+      ansC.appendChild(tglRow);
+      drawThread();
+    }
+    ansC.appendChild(thWrap);
+    ansC.appendChild(rfHost);
+  });
+  m.appendChild(ansC);typeset(ansC);
+  if(!isGuest()&&p.approval==="approved"){
+    var fc=el("div","card");fc.appendChild(el("h2",null,"✍ 回答する"));
+    fc.appendChild(el("p","small muted","回答は上長の承認後に公開されます。問題の作成者でなくても、誰でも回答できます。"));
+    var ta=el("textarea");ta.style.minHeight="90px";ta.placeholder="回答・アドバイスを入力（URLは自動でリンクになります）";fc.appendChild(ta);
+    var att=bAttachEditor();fc.appendChild(att.node);
+    var an=el("label","row");an.style.cssText="align-items:center;gap:8px;color:var(--txt);margin-top:10px";
+    var ac=el("input");ac.type="checkbox";ac.style.width="auto";an.appendChild(ac);an.appendChild(document.createTextNode("名前を伏せて回答する（匿名）※承認する上長には実名が表示されます"));fc.appendChild(an);
+    var rr=el("div","row");rr.style.marginTop="10px";var sb=el("button","btn","📤 承認を依頼する");
+    sb.onclick=function(){var b=ta.value.trim();if(!b){toast("回答を入力してください");return;}
+      var a={id:"ba"+Date.now()+Math.random().toString(36).slice(2,6),postId:p.id,t:Date.now(),uid:currentUser,anon:ac.checked?1:0,body:b,figure:att.getFigure(),links:att.getLinks(),approval:"pending",updatedAt:Date.now()};
+      boardAns.push(a);saveBans();updateBoardBadge();toast("回答しました。上長の承認後に公開されます");openBoardPost(p.id);};
+    rr.appendChild(sb);fc.appendChild(rr);m.appendChild(fc);
+  }
+  if(isGuest())m.appendChild(el("p","small muted","👀 ゲストモードのため閲覧のみ可能です。"));
+}
+function appendBoardApprovals(m){
+  var bp=boardPendingForMe();
+  if(!bp.posts.length&&!bp.answers.length)return;
+  var card=el("div","card");card.appendChild(el("h2",null,"💬 掲示板の承認待ち"));
+  card.appendChild(el("p","small muted","部下（あなたを上長に設定したユーザー）の掲示板投稿・回答です。承認すると全員に公開されます。匿名希望でも承認者には実名が表示されます。"));
+  function makeItem(x,kind){
+    var it=el("div","genitem");
+    var au=userById(x.uid);
+    it.appendChild(el("div","small muted",(kind==="post"?"📝 投稿":"🗨 回答")+" ｜ 申請者: "+userDisplay(au)+(x.anon?"（匿名希望）":"")+" ｜ "+new Date(x.t||0).toLocaleString()));
+    if(kind==="post"){it.appendChild(el("div",null,"<b>"+escapeHtml(x.title||"（無題）")+"</b>"));
+      if(x.qid){var q=findQById(x.qid);it.appendChild(el("div","small muted","🔗 関連問題: "+escapeHtml(q?q.question.slice(0,60):"（削除済み）")));}}
+    else{var pp=boardPosts.filter(function(y){return y.id===x.postId;})[0];it.appendChild(el("div","small muted","対象投稿: "+escapeHtml(pp?(pp.title||"（無題）"):"（不明）")));
+      if(x.parentId){var pa=boardAns.filter(function(y){return y.id===x.parentId;})[0];it.appendChild(el("div","small muted","↩ 返信先の回答: "+escapeHtml(pa?String(pa.body||"").slice(0,60):"（不明）")));}}
+    it.appendChild(el("div",null,'<div style="margin:6px 0">'+bRichBody(x.body)+"</div>"));
+    if(x.figure)it.appendChild(el("div","figbox",x.figure));
+    if(x.links&&x.links.length){var lk=el("div","small muted");lk.innerHTML=bLinksHtml(x.links);it.appendChild(lk);}
+    var cm=el("textarea");cm.placeholder="コメント（任意）／差し戻しの場合は理由を記載";cm.style.marginTop="6px";it.appendChild(cm);
+    var rr=el("div","row");rr.style.marginTop="6px";
+    var apv=el("button","btn","✅ 承認（公開する）");
+    apv.onclick=function(){x.approval="approved";x.reviewBy=currentUser;x.reviewAt=Date.now();x.reviewComment=cm.value.trim();x.rejectReason="";x.updatedAt=Date.now();if(kind==="post")saveBoard();else saveBans();toast("承認しました。全員に公開されます");renderApprovals();};
+    var rej=el("button","btn sec","↩ 差し戻し");
+    rej.onclick=function(){var rsn=cm.value.trim();if(!rsn){toast("差し戻し理由を記載してください");return;}x.approval="rejected";x.rejectReason=rsn;x.reviewBy=currentUser;x.reviewAt=Date.now();x.updatedAt=Date.now();if(kind==="post")saveBoard();else saveBans();toast("差し戻しました");renderApprovals();};
+    rr.appendChild(apv);rr.appendChild(rej);it.appendChild(rr);
+    card.appendChild(it);typeset(it);
+  }
+  bp.posts.forEach(function(x){makeItem(x,"post");});
+  bp.answers.forEach(function(x){makeItem(x,"answer");});
   m.appendChild(card);
 }
 function renderSettings(){
@@ -2655,6 +2977,7 @@ renderHome();
 setUserBadge();
 setGenreBadge();
 applyNavPerms();
+updateBoardBadge();
 initSync();
 </script>
 <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
