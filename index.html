@@ -2093,10 +2093,13 @@ function questionFormCard(existing,onSave,saveLabel){
     const t=q("#a_type").value;
     var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（下のボックスに選択肢を入力し、正解に⭕を付ける）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
     if(t==="mc"){
-      var mcHtml='<label>選択肢（最大4つ・最低2つ）</label><p class="small muted">各ボックスに選択肢を入力し、<b>正解のボックスの「⭕」にチェック</b>してください（出題時は自動でシャッフルされます）。</p>';
-      for(var ci=0;ci<4;ci++){mcHtml+='<div class="row" style="align-items:center;gap:8px;margin:3px 0;flex-wrap:nowrap"><label style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;color:var(--txt)"><input type="radio" name="a_mcans" value="'+ci+'" style="width:auto"'+(ci===0?" checked":"")+'>⭕正解</label><input id="a_c'+ci+'" type="text" placeholder="選択肢'+(ci+1)+(ci===0?"（正解の内容を入力）":"（誤答を入力）")+'" style="flex:1"></div>';}
+      var mcHtml='<label>選択肢（最大4つ・最低2つ）</label><p class="small muted">各ボックスに選択肢を入力し、<b>正解のボックスにチェック</b>してください（他は自動で❌誤答になります。出題時は自動でシャッフル）。</p>';
+      for(var ci=0;ci<4;ci++){mcHtml+='<div class="row" style="align-items:center;gap:8px;margin:3px 0;flex-wrap:nowrap"><label style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;color:var(--txt)"><input type="radio" name="a_mcans" value="'+ci+'" style="width:auto"'+(ci===0?" checked":"")+'><span id="a_mk'+ci+'">⭕正解</span></label><input id="a_c'+ci+'" type="text" placeholder="選択肢'+(ci+1)+'" style="flex:1"></div>';}
       dyn.innerHTML=mcHtml;
-      if(e.type==="mc"&&e.choices){e.choices.slice(0,4).forEach(function(cch,i){q("#a_c"+i).value=cch;});var rd0=dyn.querySelector('input[name="a_mcans"][value="'+(e.answer||0)+'"]');if(rd0)rd0.checked=true;}}
+      if(e.type==="mc"&&e.choices){e.choices.slice(0,4).forEach(function(cch,i){q("#a_c"+i).value=cch;});var rd0=dyn.querySelector('input[name="a_mcans"][value="'+(e.answer||0)+'"]');if(rd0)rd0.checked=true;}
+      var updMcMarks=function(){var sel=dyn.querySelector('input[name="a_mcans"]:checked');var si=sel?+sel.value:0;for(var mi=0;mi<4;mi++){var sp=q("#a_mk"+mi);var inp=q("#a_c"+mi);if(sp){sp.textContent=(mi===si)?"⭕正解":"❌誤答";sp.style.color=(mi===si)?"var(--accent)":"var(--muted)";sp.style.fontWeight=(mi===si)?"700":"";}if(inp)inp.placeholder="選択肢"+(mi+1)+(mi===si?"（正解の内容を入力）":"（誤答を入力）");}};
+      [].forEach.call(dyn.querySelectorAll('input[name="a_mcans"]'),function(rd){rd.addEventListener("change",updMcMarks);});
+      updMcMarks();}
     else if(t==="fill"){dyn.innerHTML=`<label>許容解答</label><p class="small muted">解答は<b>カンマ区切り</b>で別表記も許容（例: エキシマレーザアニール, ELA）。空欄が複数あるときは<b>1行に1空欄分</b>ずつ。</p>
       <textarea id="a_ans" placeholder="エキシマレーザアニール, ELA"></textarea>`;
       if(e.type==="fill"&&e.answer){q("#a_ans").value=Array.isArray(e.answer[0])?e.answer.map(function(a){return a.join(", ");}).join("\n"):e.answer.join(", ");}}
