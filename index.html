@@ -164,7 +164,8 @@ const LS_LIKES="dq_likes_v1";
 const LS_GENRES="dq_genres_v1", LS_CURGENRE="dq_curgenre_v1";
 const LS_CATORDER="dq_catorder_v1";
 const LS_BOARD="dq_board_v1", LS_BANS="dq_bans_v1", LS_BLIKES="dq_blikes_v1", LS_BFAV="dq_bfav_v1", LS_BDEL="dq_bdel_v1", LS_BSEEN="dq_bseen_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ,LS_LIKES,LS_GENRES,LS_CATORDER,LS_BOARD,LS_BANS,LS_BLIKES,LS_BFAV,LS_BDEL]);
+const LS_FIGSBYU="dq_figsbyu_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ,LS_LIKES,LS_GENRES,LS_CATORDER,LS_BOARD,LS_BANS,LS_BLIKES,LS_BFAV,LS_BDEL,LS_FIGSBYU]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -603,6 +604,7 @@ let boardAns=store.get(LS_BANS,[]);
 let bLikes=store.get(LS_BLIKES,{});
 let bFav=store.get(LS_BFAV,{});
 let bDel=new Set(store.get(LS_BDEL,[]));
+let figsByU=store.get(LS_FIGSBYU,{});
 let users=store.get(LS_USERS,[]);
 let currentUser=localStorage.getItem(LS_CURUSER)||"";
 let progByU=store.get(LS_PROGBYU,{});
@@ -779,13 +781,13 @@ function exportBackup(){
 function importBackup(bk,replace){
   if(!bk||typeof bk!=="object"){toast("バックアップの形式が不正です");return;}
   var data=bk.data?bk.data:bk;
-  if(replace){userQ=[];hidden=new Set();hiddenLog={};usage=[];feedback=[];users=[];selection=[];qfeedback=[];aiExp={};progByU={};histByU={};collByU={};notesByU={};issueOK=new Set();fbDone=new Set();delQ=new Set();likes={};boardPosts=[];boardAns=[];bLikes={};bFav={};bDel=new Set();genres=["ディスプレイ関連"];}
+  if(replace){userQ=[];hidden=new Set();hiddenLog={};usage=[];feedback=[];users=[];selection=[];qfeedback=[];aiExp={};progByU={};histByU={};collByU={};notesByU={};issueOK=new Set();fbDone=new Set();delQ=new Set();likes={};boardPosts=[];boardAns=[];bLikes={};bFav={};bDel=new Set();figsByU={};genres=["ディスプレイ関連"];}
   mergeCloud(data);
   if(bk.currentGenre&&genres.indexOf(bk.currentGenre)>=0){currentGenre=bk.currentGenre;localStorage.setItem(LS_CURGENRE,currentGenre);}
   if(bk.currentUser&&users.some(function(u){return u.id===bk.currentUser;})){currentUser=bk.currentUser;localStorage.setItem(LS_CURUSER,currentUser);}
   toast("復元しました。再読み込みします…");setTimeout(function(){location.reload();},600);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null),catOrder:catOrder,board:boardPosts,bans:boardAns,bLikes:bLikes,bFav:bFav,bDel:[...bDel]};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null),catOrder:catOrder,board:boardPosts,bans:boardAns,bLikes:bLikes,bFav:bFav,bDel:[...bDel],figsByU:figsByU};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -834,6 +836,7 @@ function mergeCloud(cloud){
   function mByIdB(loc,cl){var mp={};(loc||[]).forEach(function(x){if(x&&x.id&&!bDel.has(x.id))mp[x.id]=x;});(cl||[]).forEach(function(x){if(!x||!x.id||bDel.has(x.id))return;var ex=mp[x.id];if(!ex||((x.updatedAt||0)>(ex.updatedAt||0)))mp[x.id]=x;});return Object.values(mp);}
   boardPosts=mByIdB(boardPosts,cloud.board);
   boardAns=mByIdB(boardAns,cloud.bans);
+  var cfg=cloud.figsByU||{};Object.keys(cfg).forEach(function(uid){var c=cfg[uid],l=figsByU[uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))figsByU[uid]=c;});
   var clk=cloud.likes||{};Object.keys(clk).forEach(function(qid){likes[qid]=likes[qid]||{};Object.keys(clk[qid]).forEach(function(uid){var c=clk[qid][uid],l=likes[qid][uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))likes[qid][uid]=c;});});
   (cloud.genres||[]).forEach(function(g){if(genres.indexOf(g)<0)genres.push(g);});
   if(cloud.genrePub)settings.genrePub=Object.assign({},settings.genrePub||{},cloud.genrePub);if(cloud.snap&&!settings.snap)settings.snap=cloud.snap;
@@ -899,6 +902,7 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_BLIKES,JSON.stringify(bLikes));
   localStorage.setItem(LS_BFAV,JSON.stringify(bFav));
   localStorage.setItem(LS_BDEL,JSON.stringify([...bDel]));
+  localStorage.setItem(LS_FIGSBYU,JSON.stringify(figsByU));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
 function inGenre(q){return (q.genre||"ディスプレイ関連")===currentGenre;}
@@ -972,7 +976,7 @@ function catStatList(){
   });});
   return Object.keys(m).map(function(k){return m[k];});
 }
-var catEditMode=false,_catDocClick=null,_catDragged=false;
+var catEditMode=false,_catDocClick=null,_catDragged=false,_catDragActive=false;
 function confirmYesNo(title,msg){
   return new Promise(function(res){
     var ov=el("div","modal");
@@ -1001,7 +1005,8 @@ function catXbBadge(cc){
 }
 function wireCatChip(chip,cat,wrap){
   var lpTimer=null,startX=0,startY=0,suppressClick=false;
-  chip.style.touchAction="none";
+  chip.style.touchAction="pan-y";
+  chip.addEventListener("touchmove",function(ev){if(_catDragActive)ev.preventDefault();},{passive:false});
   chip.addEventListener("contextmenu",function(ev){ev.preventDefault();});
   chip.addEventListener("pointerdown",function(ev){
     if(ev.target&&ev.target.classList&&ev.target.classList.contains("xb"))return;
@@ -1032,7 +1037,7 @@ function wireCatChip(chip,cat,wrap){
     var dragging=chip,moved=false;
     var r0=dragging.getBoundingClientRect();
     var grabX=ev.clientX-r0.left,grabY=ev.clientY-r0.top;
-    wrap.classList.add("dragmode");dragging.classList.add("dragging");
+    wrap.classList.add("dragmode");dragging.classList.add("dragging");_catDragActive=true;
     try{if(chip.setPointerCapture)chip.setPointerCapture(ev.pointerId);}catch(e2){}
     function onMove(e){
       if(Math.abs(e.clientX-startX)>4||Math.abs(e.clientY-startY)>4)moved=true;
@@ -1051,7 +1056,7 @@ function wireCatChip(chip,cat,wrap){
       document.removeEventListener("pointermove",onMove);
       document.removeEventListener("pointerup",onUp);
       document.removeEventListener("pointercancel",onUp);
-      dragging.style.transform="";dragging.style.transition="";
+      dragging.style.transform="";dragging.style.transition="";_catDragActive=false;
       dragging.classList.remove("dragging");wrap.classList.remove("dragmode");
       if(moved){_catDragged=true;var order=[].map.call(wrap.querySelectorAll(".chip"),function(x){return x.dataset.cat;});saveCatOrder(order);renderHome();}
       else if(fromLP){renderHome();}
@@ -1969,6 +1974,30 @@ function importWithDupCheck(arr){
   if(fresh.length)row.appendChild(b1);row.appendChild(b2);c.appendChild(row);
   ov=showModal(c);
 }
+function myFigs(){var e2=figsByU[currentUser];return (e2&&e2.list)?e2.list:[];}
+function saveMyFigs(list){figsByU[currentUser]={list:list.slice(),t:Date.now()};store.set(LS_FIGSBYU,figsByU);}
+function previewQuestionModal(obj,onConfirm){
+  var c=el("div");
+  c.appendChild(el("h2",null,"👀 出題プレビュー"));
+  c.appendChild(el("p","small muted","実際の出題画面とほぼ同じ表示です。内容に問題なければ「📤 この内容で承認を依頼する」を押してください。"));
+  c.appendChild(el("div","qmeta",diffPill(obj.difficulty)+` <span class="pill">${TYPE[obj.type]}</span> `+(obj.category||[]).map(function(cc){return `<span class="tag">${escapeHtml(cc)}</span>`;}).join("")));
+  if(obj.figure)c.appendChild(el("div","figbox",obj.figure));
+  var qtext=obj.type==="fill"?escapeHtml(obj.question).replace(/_{2,}/g,'<span class="blank">［　　］</span>'):escapeHtml(obj.question);
+  c.appendChild(el("div",null,`<div style="font-size:15px;margin:8px 0">${qtext}</div>`));
+  if(obj.type==="mc")c.appendChild(el("div",null,obj.choices.map(function(ch,i){return '<div class="choice" style="margin:4px 0">'+(i===obj.answer?"⭕ ":"− ")+escapeHtml(ch)+(i===obj.answer?'　<span class="small muted">（正解・出題時はシャッフルされます）</span>':"")+"</div>";}).join("")));
+  if(obj.type==="fill")c.appendChild(el("div","small muted","正解: "+(Array.isArray(obj.answer[0])?obj.answer.map(function(a){return "["+a.join(" / ")+"]";}).join(" , "):obj.answer.join(" / "))));
+  if(obj.type==="reason"){c.appendChild(el("div","small muted","模範解答: "+escapeHtml(obj.modelAnswer||"")));if(obj.keyPoints&&obj.keyPoints.length)c.appendChild(el("div","small muted","採点ポイント: "+obj.keyPoints.map(escapeHtml).join(" / ")));}
+  if(obj.links&&obj.links.length)c.appendChild(el("div","small muted","📎 関連資料: "+obj.links.map(function(x){return escapeHtml(x.label||x.url);}).join(" ｜ ")));
+  c.appendChild(el("h3",null,"解説"));
+  c.appendChild(el("div","explain",escapeHtml(obj.explanation||"（解説未登録）")));
+  var rr=el("div","row");rr.style.marginTop="12px";var ov;
+  var ok=el("button","btn","📤 この内容で承認を依頼する");
+  var ed=el("button","btn sec","✏ 修正に戻る");
+  ok.onclick=function(){ov.remove();onConfirm();};
+  ed.onclick=function(){ov.remove();};
+  rr.appendChild(ok);rr.appendChild(ed);c.appendChild(rr);
+  ov=showModal(c);typeset(c);
+}
 function questionFormCard(existing,onSave,saveLabel){
   const e=existing||{};
   const card=el("div","card");
@@ -1981,16 +2010,19 @@ function questionFormCard(existing,onSave,saveLabel){
     <select id="a_diff"><option value="1">易</option><option value="2">標準</option><option value="3">難</option></select>
     <label>知識種別（あなたが作る問題の分類）</label>
     <select id="a_know"><option value="general">一般知識</option><option value="knowhow">ノウハウ</option><option value="both">一般知識・ノウハウ両方</option></select>
-    <label>カテゴリ（分野。カンマ区切りで複数可）</label>
-    <input id="a_cat" type="text" placeholder="例: IGZO, デバイス物理">
+    <label>カテゴリ（登録済みからタップで選択・複数可）</label>
+    <div id="a_catwrap" class="row" style="margin:4px 0"></div>
+    <label>新しいカテゴリ（登録済みに無い名前を使いたい時だけ・カンマ区切りで複数可）</label>
+    <input id="a_cat" type="text" placeholder="通常は上から選ぶだけでOK。新しい分野名はここに入力">
     <label>問題文</label>
     <textarea id="a_q" placeholder="例: IGZOがa-Si:Hより高い電子移動度を示す主な理由は？（数式は $...$ で書けます）"></textarea>
     <div class="row" style="margin:2px 0 6px"><button class="btn sec" id="a_simcheck" type="button">🔎 似た問題がないか確認</button></div>
     <div id="a_simres"></div>
     <div id="a_dyn"></div>
     <label>図（任意）</label>
-    <p class="small muted">下のテンプレ挿入／画像URL貼り付け／枠内に画像をドラッグ&ドロップ、のいずれでも追加できます。SVG・HTMLの直接入力も可。</p>
+    <p class="small muted">画像URL貼り付け／枠内に画像をドラッグ&ドロップ／SVG・HTML直接入力で追加できます。よく使う図は「💾 テンプレとして保存」しておくと、次回からワンタップで挿入できます（あなた専用のマイ図テンプレ）。</p>
     <div id="a_tpl" class="row" style="margin:4px 0"></div>
+    <div class="row" style="margin:4px 0"><button class="btn sec" id="a_figsave" type="button">💾 現在の図をテンプレとして保存</button><button class="btn sec" id="a_figman" type="button">🗂 テンプレを整理</button></div>
     <div class="row" style="margin:4px 0"><input id="a_imgurl" type="text" placeholder="画像URL（https://...）" style="flex:1"><button class="btn sec" id="a_imgadd" type="button">画像URLを挿入</button></div>
     <textarea id="a_fig" placeholder="ここに画像をドラッグ&ドロップ、または上で挿入（空欄でOK）"></textarea>
     <div id="a_figprev"></div>
@@ -2003,7 +2035,15 @@ function questionFormCard(existing,onSave,saveLabel){
   const q=card.querySelector.bind(card);
   q("#a_type").value=e.type||"mc";
   q("#a_diff").value=e.difficulty||2;
-  q("#a_cat").value=(e.category||[]).join(", ");
+  var selCats=new Set(e.category||[]);
+  (function(){
+    var wrapC=q("#a_catwrap");
+    var known=uniqueCategories();
+    catsForGenre().forEach(function(c){if(known.indexOf(c)<0)known.push(c);});
+    (e.category||[]).forEach(function(c){if(known.indexOf(c)<0)known.push(c);});
+    if(!known.length){wrapC.appendChild(el("span","small muted","登録済みカテゴリはまだありません。下の欄に入力してください。"));return;}
+    known.forEach(function(c){var ch=el("span","chip"+(selCats.has(c)?" on":""),escapeHtml(c));ch.onclick=function(){if(selCats.has(c)){selCats.delete(c);ch.classList.remove("on");}else{selCats.add(c);ch.classList.add("on");}};wrapC.appendChild(ch);});
+  })();
   q("#a_q").value=e.question||"";
   q("#a_fig").value=e.figure||"";
   q("#a_exp").value=e.explanation||"";
@@ -2012,9 +2052,23 @@ function questionFormCard(existing,onSave,saveLabel){
   function updFigPrev(){const v=q("#a_fig").value.trim();figprev.innerHTML=v?'<div class="figbox">'+v+'</div>':"";}
   q("#a_fig").addEventListener("input",updFigPrev);updFigPrev();
   const tpl=q("#a_tpl");
-  Object.keys(FIG_TEMPLATES).forEach(name=>{const b=el("button","chip",escapeHtml(name));b.type="button";
-    b.onclick=()=>{q("#a_fig").value=FIG_TEMPLATES[name];updFigPrev();toast("図テンプレを挿入");};tpl.appendChild(b);});
-  const clr=el("button","chip","図をクリア");clr.type="button";clr.onclick=()=>{q("#a_fig").value="";updFigPrev();};tpl.appendChild(clr);
+  function drawMyFigs(){
+    tpl.innerHTML="";
+    var list=myFigs();
+    if(!list.length)tpl.appendChild(el("span","small muted","マイ図テンプレはまだありません（図を入力→「💾 テンプレとして保存」で登録できます）。"));
+    list.forEach(function(f){var b=el("button","chip",escapeHtml(f.name));b.type="button";b.onclick=function(){q("#a_fig").value=f.fig;updFigPrev();toast("図テンプレを挿入しました");};tpl.appendChild(b);});
+    var clr=el("button","chip","図をクリア");clr.type="button";clr.onclick=function(){q("#a_fig").value="";updFigPrev();};tpl.appendChild(clr);
+  }
+  drawMyFigs();
+  q("#a_figsave").onclick=function(){var v=q("#a_fig").value.trim();if(!v){toast("先に図を入力してください");return;}var nm=prompt("テンプレ名を入力（例: TFT断面図）");if(!nm||!nm.trim())return;var list=myFigs().slice();list.push({id:"f"+Date.now(),name:nm.trim(),fig:v});saveMyFigs(list);drawMyFigs();toast("マイ図テンプレに保存しました");};
+  q("#a_figman").onclick=function(){
+    var list=myFigs().slice();
+    if(!list.length){toast("登録済みのテンプレはありません");return;}
+    var c=el("div");c.appendChild(el("h2",null,"🗂 マイ図テンプレの整理"));
+    var host=el("div");
+    function drawM(){host.innerHTML="";if(!list.length){host.appendChild(el("p","muted","テンプレはありません。"));return;}list.forEach(function(f,idx){var rw=el("div","row");rw.style.cssText="align-items:center;gap:8px;margin:3px 0";var nm=el("div");nm.style.flex="1";nm.textContent=f.name;var pv=el("button","btn sec","👀 表示");pv.type="button";pv.onclick=function(){var d=el("div");d.appendChild(el("h2",null,f.name));d.appendChild(el("div","figbox",f.fig));showModal(d);};var xb=el("button","btn sec","🗑 削除");xb.type="button";xb.onclick=function(){list.splice(idx,1);saveMyFigs(list);drawM();drawMyFigs();};rw.appendChild(nm);rw.appendChild(pv);rw.appendChild(xb);host.appendChild(rw);});}
+    drawM();c.appendChild(host);showModal(c);
+  };
   var qlinks=(e.links||[]).slice();
   function drawLinks(){var lh=q("#a_linklist");lh.innerHTML="";qlinks.forEach(function(lk,idx){var rw=el("div","row");rw.style.cssText="align-items:center;gap:8px;margin:3px 0";var a=el("a");a.href=lk.url;a.target="_blank";a.textContent="📎 "+(lk.label||lk.url);a.style.flex="1";var xb=el("button","btn sec","削除");xb.type="button";xb.style.padding="2px 8px";xb.onclick=function(){qlinks.splice(idx,1);drawLinks();};rw.appendChild(a);rw.appendChild(xb);lh.appendChild(rw);});}
   drawLinks();
@@ -2037,10 +2091,12 @@ function questionFormCard(existing,onSave,saveLabel){
   const dyn=q("#a_dyn");
   function dynFields(){
     const t=q("#a_type").value;
-    var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（選択肢4つを用意し、下の欄の1行目を正解に）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
-    if(t==="mc"){dyn.innerHTML=`<label>選択肢</label><p class="small muted">1行に1つ。<b>1行目を正解</b>にしてください（出題時に自動でシャッフルされます）。4択なら4行。</p>
-      <textarea id="a_choices" placeholder="正解の選択肢（1行目に書く）&#10;誤答1&#10;誤答2&#10;誤答3"></textarea>`;
-      if(e.type==="mc"&&e.choices)q("#a_choices").value=[e.choices[e.answer]].concat(e.choices.filter((_,i)=>i!==e.answer)).join("\n");}
+    var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（下のボックスに選択肢を入力し、正解に⭕を付ける）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
+    if(t==="mc"){
+      var mcHtml='<label>選択肢（最大4つ・最低2つ）</label><p class="small muted">各ボックスに選択肢を入力し、<b>正解のボックスの「⭕」にチェック</b>してください（出題時は自動でシャッフルされます）。</p>';
+      for(var ci=0;ci<4;ci++){mcHtml+='<div class="row" style="align-items:center;gap:8px;margin:3px 0;flex-wrap:nowrap"><label style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;color:var(--txt)"><input type="radio" name="a_mcans" value="'+ci+'" style="width:auto"'+(ci===0?" checked":"")+'>⭕正解</label><input id="a_c'+ci+'" type="text" placeholder="選択肢'+(ci+1)+(ci===0?"（正解の内容を入力）":"（誤答を入力）")+'" style="flex:1"></div>';}
+      dyn.innerHTML=mcHtml;
+      if(e.type==="mc"&&e.choices){e.choices.slice(0,4).forEach(function(cch,i){q("#a_c"+i).value=cch;});var rd0=dyn.querySelector('input[name="a_mcans"][value="'+(e.answer||0)+'"]');if(rd0)rd0.checked=true;}}
     else if(t==="fill"){dyn.innerHTML=`<label>許容解答</label><p class="small muted">解答は<b>カンマ区切り</b>で別表記も許容（例: エキシマレーザアニール, ELA）。空欄が複数あるときは<b>1行に1空欄分</b>ずつ。</p>
       <textarea id="a_ans" placeholder="エキシマレーザアニール, ELA"></textarea>`;
       if(e.type==="fill"&&e.answer){q("#a_ans").value=Array.isArray(e.answer[0])?e.answer.map(function(a){return a.join(", ");}).join("\n"):e.answer.join(", ");}}
@@ -2051,20 +2107,24 @@ function questionFormCard(existing,onSave,saveLabel){
   q("#a_type").onchange=dynFields;dynFields();
   q("#a_save").onclick=()=>{
     const t=q("#a_type").value;
-    var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（選択肢4つを用意し、下の欄の1行目を正解に）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
+    var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（下のボックスに選択肢を入力し、正解に⭕を付ける）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
     const qt=q("#a_q").value.trim();
-    const cat=q("#a_cat").value.split(",").map(s=>s.trim()).filter(Boolean);
+    const cat=[...selCats];
+    q("#a_cat").value.split(",").map(s=>s.trim()).filter(Boolean).forEach(function(c){if(cat.indexOf(c)<0)cat.push(c);});
     if(!qt){toast("問題文を入力してください");return;}
-    if(!cat.length){toast("カテゴリを1つ以上入力してください");return;}
+    if(!cat.length){toast("カテゴリを1つ以上選択（または入力）してください");return;}
     const obj={id:e.id||("u"+Date.now()),type:t,difficulty:+q("#a_diff").value,
       category:cat,question:qt,explanation:q("#a_exp").value.trim()};
     obj.author=(e&&e.author)?e.author:currentUser;obj.knowledgeType=q("#a_know")?q("#a_know").value:"general";obj.genre=e.genre||currentGenre;
     const fig=q("#a_fig").value.trim();if(fig)obj.figure=fig;
     if(qlinks&&qlinks.length)obj.links=qlinks;else if(e&&e.links)obj.links=e.links;
     if(t==="mc"){
-      const lines=q("#a_choices").value.split("\n").map(s=>s.trim()).filter(Boolean);
-      if(lines.length<2){toast("選択肢を2つ以上（正解+誤答）入力してください");return;}
-      obj.choices=lines;obj.answer=0;
+      var selRd=dyn.querySelector('input[name="a_mcans"]:checked');
+      var selIdx=selRd?+selRd.value:0;
+      var chs=[],ansIdx=-1;
+      for(var ci2=0;ci2<4;ci2++){var cv=q("#a_c"+ci2).value.trim();if(ci2===selIdx){if(!cv){toast("⭕正解にチェックしたボックスが空です。正解の選択肢を入力してください");return;}ansIdx=chs.length;}if(cv)chs.push(cv);}
+      if(chs.length<2){toast("選択肢を2つ以上（正解+誤答）入力してください");return;}
+      obj.choices=chs;obj.answer=ansIdx;
     }else if(t==="fill"){
       var lines=q("#a_ans").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
       if(!lines.length){toast("許容解答を入力してください");return;}
@@ -2084,7 +2144,7 @@ function questionFormCard(existing,onSave,saveLabel){
 /* ====================== 問題追加（手動） ====================== */
 function renderAdd(){
   const m=$("#main");m.innerHTML="";
-  m.appendChild(questionFormCard(null,obj=>{obj.updatedAt=Date.now();obj.approval=needsApproval(obj)?"pending":"approved";userQ.push(obj);store.set(LS_USERQ,userQ);toast(needsApproval(obj)?"追加しました（上長の承認待ち）":"追加しました（"+TYPE[obj.type]+"）");renderAdd();},"📤 承認を依頼する"));
+  m.appendChild(questionFormCard(null,obj=>{previewQuestionModal(obj,function(){obj.updatedAt=Date.now();obj.approval=needsApproval(obj)?"pending":"approved";userQ.push(obj);store.set(LS_USERQ,userQ);toast(needsApproval(obj)?"承認を依頼しました（上長の承認待ち）":"追加しました（"+TYPE[obj.type]+"）");renderAdd();});},"👀 プレビューして承認を依頼"));
   const io=el("div","card");
   io.appendChild(el("h2",null,"バックアップ / 一括追加（JSON）"));
   io.appendChild(el("p","small muted",`追加済みのユーザー問題: <b style="color:var(--txt)">${userQ.length}</b> 問 ／ 全 ${allQuestions().length} 問`));
