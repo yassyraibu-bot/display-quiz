@@ -2060,29 +2060,28 @@ function catPicker(initialSel){
   var sel=(initialSel||[]).slice();
   var wrap=el("div");
   var selRow=el("div","row");selRow.style.cssText="margin:4px 0;flex-wrap:wrap";wrap.appendChild(selRow);
-  var inp=el("input");inp.type="text";inp.placeholder="カテゴリ名を入力して検索（例: IGZO）";wrap.appendChild(inp);
-  var res=el("div");wrap.appendChild(res);
+  var inp=el("input");inp.type="text";inp.placeholder="カテゴリ名を入力して絞り込み（例: IGZO）";wrap.appendChild(inp);
+  var res=el("div","row");res.style.cssText="flex-wrap:wrap;gap:6px;margin:6px 0;max-height:130px;overflow-y:auto;align-content:flex-start";wrap.appendChild(res);
   function knownCats(){var k=uniqueCategories();catsForGenre().forEach(function(c){if(k.indexOf(c)<0)k.push(c);});return k;}
   function drawSel(){
     selRow.innerHTML="";
-    if(!sel.length){selRow.appendChild(el("span","small muted","選択中のカテゴリ: なし（下の検索欄から追加してください）"));return;}
-    sel.forEach(function(c,i){var ch=el("span","chip on",escapeHtml(c)+" ✕");ch.title="タップで解除";ch.onclick=function(){sel.splice(i,1);drawSel();};selRow.appendChild(ch);});
+    if(!sel.length){selRow.appendChild(el("span","small muted","選択中のカテゴリ: なし（下の一覧をタップ、または入力して絞り込み）"));return;}
+    sel.forEach(function(c,i){var ch=el("span","chip on",escapeHtml(c)+" ✕");ch.title="タップで解除";ch.onclick=function(){sel.splice(i,1);drawSel();drawRes();};selRow.appendChild(ch);});
   }
   function drawRes(){
     res.innerHTML="";
     var kw=norm(inp.value);
-    if(!kw)return;
-    var hits=knownCats().filter(function(c){return sel.indexOf(c)<0&&norm(c).indexOf(kw)>=0;}).slice(0,8);
-    hits.forEach(function(c){var b=el("button","btn sec","＋ "+escapeHtml(c));b.type="button";b.style.cssText="display:block;width:100%;text-align:left;margin:2px 0";b.onclick=function(){sel.push(c);inp.value="";res.innerHTML="";drawSel();};res.appendChild(b);});
+    var hits=knownCats().filter(function(c){return sel.indexOf(c)<0&&(!kw||norm(c).indexOf(kw)>=0);});
+    hits.forEach(function(c){var b=el("span","chip","＋ "+escapeHtml(c));b.title="タップで選択";b.onclick=function(){sel.push(c);inp.value="";drawSel();drawRes();};res.appendChild(b);});
     var raw=inp.value.trim();
     if(raw&&sel.indexOf(raw)<0&&knownCats().indexOf(raw)<0){
       var nb=el("button","btn sec","🆕 「"+escapeHtml(raw)+"」を新しいカテゴリとして追加");nb.type="button";nb.style.cssText="display:block;width:100%;text-align:left;margin:2px 0";
-      nb.onclick=function(){sel.push(raw);inp.value="";res.innerHTML="";drawSel();};res.appendChild(nb);
+      nb.onclick=function(){sel.push(raw);inp.value="";drawSel();drawRes();};res.appendChild(nb);
     }
-    if(!res.childNodes.length)res.appendChild(el("div","small muted","（該当するカテゴリはありません・既に選択済みです）"));
+    if(!res.childNodes.length)res.appendChild(el("div","small muted","（該当するカテゴリはありません）"));
   }
   inp.addEventListener("input",drawRes);
-  drawSel();
+  drawSel();drawRes();
   return {node:wrap,get:function(){return sel.slice();}};
 }
 function myFigs(){var e2=figsByU[currentUser];return (e2&&e2.list)?e2.list:[];}
