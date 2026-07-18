@@ -1868,10 +1868,8 @@ function renderGen(){
   card.innerHTML+=`
     <p class="small muted">条件を指定してClaudeに問題を作らせ、確認してから追加できます。繰り返せば数百〜1000問規模まで構築可能です。
     APIキー設定時はこの場で生成、未設定時は無料のコピー方式（claude.aiで生成→JSONを貼り付け）になります。</p>
-    <label>カテゴリ（登録済みからタップで選択・複数可）</label>
-    <div id="g_catwrap" class="row" style="margin:4px 0"></div>
-    <label>新しいカテゴリ（登録済みに無い名前を使いたい時だけ・カンマ区切りで複数可）</label>
-    <input id="g_cat" type="text" placeholder="通常は上から選ぶだけでOK。新しい分野名はここに入力">
+    <label>カテゴリ（入力して検索→タップで選択・複数可。見つからない名前はそのまま新規追加できます）</label>
+    <div id="g_catbox"></div>
     <div class="row">
       <div style="flex:1;min-width:140px"><label>難易度</label>
         <select id="g_diff"><option value="mix">混在</option><option value="1">易</option><option value="2">標準</option><option value="3">難</option></select></div>
@@ -1901,16 +1899,10 @@ function renderGen(){
 
   const preview=el("div");preview.id="gen_preview";m.appendChild(preview);
 
-  var g_selCats=new Set();
-  (function(){
-    var wrapC=card.querySelector("#g_catwrap");
-    var known=uniqueCategories();
-    catsForGenre().forEach(function(c2){if(known.indexOf(c2)<0)known.push(c2);});
-    if(!known.length){wrapC.appendChild(el("span","small muted","登録済みカテゴリはまだありません。下の欄に入力してください。"));return;}
-    known.forEach(function(c2){var ch=el("span","chip",escapeHtml(c2));ch.onclick=function(){if(g_selCats.has(c2)){g_selCats.delete(c2);ch.classList.remove("on");}else{g_selCats.add(c2);ch.classList.add("on");}};wrapC.appendChild(ch);});
-  })();
+  var gCatPk=catPicker([]);
+  card.querySelector("#g_catbox").appendChild(gCatPk.node);
   function opts(){return{
-    cats:(function(){var a=[...g_selCats];card.querySelector("#g_cat").value.split(",").map(function(s){return s.trim();}).filter(Boolean).forEach(function(c2){if(a.indexOf(c2)<0)a.push(c2);});return a.length?a.join(", "):"指定なし";})(),
+    cats:(function(){var a=gCatPk.get();return a.length?a.join(", "):"指定なし";})(),
     diff:card.querySelector("#g_diff").value, type:card.querySelector("#g_type").value,
     count:parseInt(card.querySelector("#g_count").value)||10,
     topic:card.querySelector("#g_topic").value.trim()};}
@@ -2064,6 +2056,35 @@ function importWithDupCheck(arr){
   if(fresh.length)row.appendChild(b1);row.appendChild(b2);c.appendChild(row);
   ov=showModal(c);
 }
+function catPicker(initialSel){
+  var sel=(initialSel||[]).slice();
+  var wrap=el("div");
+  var selRow=el("div","row");selRow.style.cssText="margin:4px 0;flex-wrap:wrap";wrap.appendChild(selRow);
+  var inp=el("input");inp.type="text";inp.placeholder="カテゴリ名を入力して検索（例: IGZO）";wrap.appendChild(inp);
+  var res=el("div");wrap.appendChild(res);
+  function knownCats(){var k=uniqueCategories();catsForGenre().forEach(function(c){if(k.indexOf(c)<0)k.push(c);});return k;}
+  function drawSel(){
+    selRow.innerHTML="";
+    if(!sel.length){selRow.appendChild(el("span","small muted","選択中のカテゴリ: なし（下の検索欄から追加してください）"));return;}
+    sel.forEach(function(c,i){var ch=el("span","chip on",escapeHtml(c)+" ✕");ch.title="タップで解除";ch.onclick=function(){sel.splice(i,1);drawSel();};selRow.appendChild(ch);});
+  }
+  function drawRes(){
+    res.innerHTML="";
+    var kw=norm(inp.value);
+    if(!kw)return;
+    var hits=knownCats().filter(function(c){return sel.indexOf(c)<0&&norm(c).indexOf(kw)>=0;}).slice(0,8);
+    hits.forEach(function(c){var b=el("button","btn sec","＋ "+escapeHtml(c));b.type="button";b.style.cssText="display:block;width:100%;text-align:left;margin:2px 0";b.onclick=function(){sel.push(c);inp.value="";res.innerHTML="";drawSel();};res.appendChild(b);});
+    var raw=inp.value.trim();
+    if(raw&&sel.indexOf(raw)<0&&knownCats().indexOf(raw)<0){
+      var nb=el("button","btn sec","🆕 「"+escapeHtml(raw)+"」を新しいカテゴリとして追加");nb.type="button";nb.style.cssText="display:block;width:100%;text-align:left;margin:2px 0";
+      nb.onclick=function(){sel.push(raw);inp.value="";res.innerHTML="";drawSel();};res.appendChild(nb);
+    }
+    if(!res.childNodes.length)res.appendChild(el("div","small muted","（該当するカテゴリはありません・既に選択済みです）"));
+  }
+  inp.addEventListener("input",drawRes);
+  drawSel();
+  return {node:wrap,get:function(){return sel.slice();}};
+}
 function myFigs(){var e2=figsByU[currentUser];return (e2&&e2.list)?e2.list:[];}
 function saveMyFigs(list){figsByU[currentUser]={list:list.slice(),t:Date.now()};store.set(LS_FIGSBYU,figsByU);}
 function previewQuestionModal(obj,onConfirm){
@@ -2100,10 +2121,8 @@ function questionFormCard(existing,onSave,saveLabel){
     <select id="a_diff"><option value="1">易</option><option value="2">標準</option><option value="3">難</option></select>
     <label>知識種別（あなたが作る問題の分類）</label>
     <select id="a_know"><option value="general">一般知識</option><option value="knowhow">ノウハウ</option><option value="both">一般知識・ノウハウ両方</option></select>
-    <label>カテゴリ（登録済みからタップで選択・複数可）</label>
-    <div id="a_catwrap" class="row" style="margin:4px 0"></div>
-    <label>新しいカテゴリ（登録済みに無い名前を使いたい時だけ・カンマ区切りで複数可）</label>
-    <input id="a_cat" type="text" placeholder="通常は上から選ぶだけでOK。新しい分野名はここに入力">
+    <label>カテゴリ（入力して検索→タップで選択・複数可。見つからない名前はそのまま新規追加できます）</label>
+    <div id="a_catbox"></div>
     <label>問題文</label>
     <textarea id="a_q" placeholder="例: IGZOがa-Si:Hより高い電子移動度を示す主な理由は？（数式は $...$ で書けます）"></textarea>
     <div class="row" style="margin:2px 0 6px"><button class="btn sec" id="a_simcheck" type="button">🔎 似た問題がないか確認</button></div>
@@ -2125,15 +2144,8 @@ function questionFormCard(existing,onSave,saveLabel){
   const q=card.querySelector.bind(card);
   q("#a_type").value=e.type||"mc";
   q("#a_diff").value=e.difficulty||2;
-  var selCats=new Set(e.category||[]);
-  (function(){
-    var wrapC=q("#a_catwrap");
-    var known=uniqueCategories();
-    catsForGenre().forEach(function(c){if(known.indexOf(c)<0)known.push(c);});
-    (e.category||[]).forEach(function(c){if(known.indexOf(c)<0)known.push(c);});
-    if(!known.length){wrapC.appendChild(el("span","small muted","登録済みカテゴリはまだありません。下の欄に入力してください。"));return;}
-    known.forEach(function(c){var ch=el("span","chip"+(selCats.has(c)?" on":""),escapeHtml(c));ch.onclick=function(){if(selCats.has(c)){selCats.delete(c);ch.classList.remove("on");}else{selCats.add(c);ch.classList.add("on");}};wrapC.appendChild(ch);});
-  })();
+  var catPk=catPicker(e.category||[]);
+  q("#a_catbox").appendChild(catPk.node);
   q("#a_q").value=e.question||"";
   q("#a_fig").value=e.figure||"";
   q("#a_exp").value=e.explanation||"";
@@ -2202,10 +2214,9 @@ function questionFormCard(existing,onSave,saveLabel){
     const t=q("#a_type").value;
     var __qx={mc:"例: IGZO が a-Si:H より高い電子移動度を示す主な理由として正しいものはどれか？（下のボックスに選択肢を入力し、正解に⭕を付ける）",fill:"例: a-Si を結晶化して LTPS を作る代表的なレーザ結晶化法は ___ である。（空欄は半角アンダースコア3つ ___）",reason:"例: IGZO-TFT が負バイアス光ストレス(NBIS)で劣化しやすい理由を、欠陥準位の観点から説明せよ。"};var __qe=q("#a_q");if(__qe)__qe.placeholder=__qx[t]||"";
     const qt=q("#a_q").value.trim();
-    const cat=[...selCats];
-    q("#a_cat").value.split(",").map(s=>s.trim()).filter(Boolean).forEach(function(c){if(cat.indexOf(c)<0)cat.push(c);});
+    const cat=catPk.get();
     if(!qt){toast("問題文を入力してください");return;}
-    if(!cat.length){toast("カテゴリを1つ以上選択（または入力）してください");return;}
+    if(!cat.length){toast("カテゴリを1つ以上選択（検索して追加）してください");return;}
     const obj={id:e.id||("u"+Date.now()),type:t,difficulty:+q("#a_diff").value,
       category:cat,question:qt,explanation:q("#a_exp").value.trim()};
     obj.author=(e&&e.author)?e.author:currentUser;obj.knowledgeType=q("#a_know")?q("#a_know").value:"general";obj.genre=e.genre||currentGenre;
