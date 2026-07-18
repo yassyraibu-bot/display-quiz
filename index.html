@@ -165,7 +165,8 @@ const LS_GENRES="dq_genres_v1", LS_CURGENRE="dq_curgenre_v1";
 const LS_CATORDER="dq_catorder_v1";
 const LS_BOARD="dq_board_v1", LS_BANS="dq_bans_v1", LS_BLIKES="dq_blikes_v1", LS_BFAV="dq_bfav_v1", LS_BDEL="dq_bdel_v1", LS_BSEEN="dq_bseen_v1";
 const LS_FIGSBYU="dq_figsbyu_v1";
-const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ,LS_LIKES,LS_GENRES,LS_CATORDER,LS_BOARD,LS_BANS,LS_BLIKES,LS_BFAV,LS_BDEL,LS_FIGSBYU]);
+const LS_GENRECFG="dq_genrecfg_v1";
+const SYNC_KEYS=new Set([LS_USERQ,LS_HIDDEN,LS_SET,LS_USAGE,LS_FEEDBACK,LS_USERS,LS_SELECTION,LS_QFB,LS_AIEXP,LS_PROGBYU,LS_HISTBYU,LS_COLLBYU,LS_NOTESBYU,LS_ISSUEOK,LS_FBDONE,LS_HIDLOG,LS_DELQ,LS_LIKES,LS_GENRES,LS_CATORDER,LS_BOARD,LS_BANS,LS_BLIKES,LS_BFAV,LS_BDEL,LS_FIGSBYU,LS_GENRECFG]);
 const PRICING={"claude-haiku-4-5-20251001":[1.00,5.00],"claude-haiku-4-5":[1.00,5.00],"claude-sonnet-4-6":[3.00,15.00],"claude-opus-4-8":[5.00,25.00]};
 function priceFor(model){return PRICING[model]||PRICING["claude-haiku-4-5-20251001"];}
 function costUSD(model,inTok,outTok){var p=priceFor(model);return (inTok||0)/1e6*p[0]+(outTok||0)/1e6*p[1];}
@@ -597,7 +598,15 @@ let fbDone=new Set(store.get(LS_FBDONE,[]));
 let delQ=new Set(store.get(LS_DELQ,[]));
 let likes=store.get(LS_LIKES,{});
 let genres=store.get(LS_GENRES,["ディスプレイ関連"]);if(!Array.isArray(genres)||!genres.length)genres=["ディスプレイ関連"];
-let currentGenre=localStorage.getItem(LS_CURGENRE)||genres[0];if(genres.indexOf(currentGenre)<0)currentGenre=genres[0];
+let genreCfg=store.get(LS_GENRECFG,{seedGenre:"ディスプレイ関連",seedT:0,hidden:{}});
+if(!genreCfg||typeof genreCfg!=="object")genreCfg={seedGenre:"ディスプレイ関連",seedT:0,hidden:{}};
+if(!genreCfg.hidden)genreCfg.hidden={};
+if(!genreCfg.seedGenre)genreCfg.seedGenre="ディスプレイ関連";
+function visibleGenres(){return genres.filter(function(g){var h=genreCfg.hidden[g];return !(h&&h.h);});}
+function seedGenreName(){return genreCfg.seedGenre||"ディスプレイ関連";}
+function saveGenreCfg(){store.set(LS_GENRECFG,genreCfg);}
+let currentGenre=localStorage.getItem(LS_CURGENRE)||genres[0];
+(function(){var vg=visibleGenres();if(!vg.length){genreCfg.hidden={};vg=genres.slice();}if(vg.indexOf(currentGenre)<0)currentGenre=vg[0];})();
 let catOrder=store.get(LS_CATORDER,{});
 let boardPosts=store.get(LS_BOARD,[]);
 let boardAns=store.get(LS_BANS,[]);
@@ -708,7 +717,7 @@ function sanitizeQ(q){
   q.category=q.category.map(String);
   if(![1,2,3].includes(q.difficulty))q.difficulty=2;
   if(!q.author&&/^g/.test(q.id))q.author="ai";
-  if(!q.genre)q.genre="ディスプレイ関連";
+  if(!q.genre)q.genre=seedGenreName();
   if(q.type==="mc"){if(!Array.isArray(q.choices)||q.choices.length<2)return null;q.choices=q.choices.map(String);if(typeof q.answer!=="number"||q.answer<0||q.answer>=q.choices.length)q.answer=0;}
   else if(q.type==="fill"){var a=q.answer;if(typeof a==="string")a=[a];if(!Array.isArray(a)||!a.length)return null;q.answer=a;if(!/_{2,}/.test(q.question))q.question=q.question+" ___ ";}
   else if(q.type==="reason"){if(typeof q.modelAnswer!=="string")q.modelAnswer=q.modelAnswer?String(q.modelAnswer):"（模範解答未登録）";if(!Array.isArray(q.keyPoints))q.keyPoints=[];}
@@ -781,13 +790,13 @@ function exportBackup(){
 function importBackup(bk,replace){
   if(!bk||typeof bk!=="object"){toast("バックアップの形式が不正です");return;}
   var data=bk.data?bk.data:bk;
-  if(replace){userQ=[];hidden=new Set();hiddenLog={};usage=[];feedback=[];users=[];selection=[];qfeedback=[];aiExp={};progByU={};histByU={};collByU={};notesByU={};issueOK=new Set();fbDone=new Set();delQ=new Set();likes={};boardPosts=[];boardAns=[];bLikes={};bFav={};bDel=new Set();figsByU={};genres=["ディスプレイ関連"];}
+  if(replace){userQ=[];hidden=new Set();hiddenLog={};usage=[];feedback=[];users=[];selection=[];qfeedback=[];aiExp={};progByU={};histByU={};collByU={};notesByU={};issueOK=new Set();fbDone=new Set();delQ=new Set();likes={};boardPosts=[];boardAns=[];bLikes={};bFav={};bDel=new Set();figsByU={};genres=["ディスプレイ関連"];genreCfg={seedGenre:"ディスプレイ関連",seedT:0,hidden:{}};}
   mergeCloud(data);
   if(bk.currentGenre&&genres.indexOf(bk.currentGenre)>=0){currentGenre=bk.currentGenre;localStorage.setItem(LS_CURGENRE,currentGenre);}
   if(bk.currentUser&&users.some(function(u){return u.id===bk.currentUser;})){currentUser=bk.currentUser;localStorage.setItem(LS_CURUSER,currentUser);}
   toast("復元しました。再読み込みします…");setTimeout(function(){location.reload();},600);
 }
-function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null),catOrder:catOrder,board:boardPosts,bans:boardAns,bLikes:bLikes,bFav:bFav,bDel:[...bDel],figsByU:figsByU};}
+function syncPayload(){progByU[currentUser]=progress;histByU[currentUser]=history;collByU[currentUser]=collections;notesByU[currentUser]=notes;return {_v:2,_ts:Date.now(),userQ:userQ,hidden:[...hidden],hiddenLog:hiddenLog,usage:usage,feedback:feedback,srs:settings.srs,users:users,selection:selection,qfeedback:qfeedback,aiExp:aiExp,progByU:progByU,histByU:histByU,collByU:collByU,notesByU:notesByU,issueOK:[...issueOK],fbDone:[...fbDone],delQ:[...delQ],likes:likes,genres:genres,genrePub:(settings.genrePub||{}),snap:(settings.snap||null),catOrder:catOrder,board:boardPosts,bans:boardAns,bLikes:bLikes,bFav:bFav,bDel:[...bDel],figsByU:figsByU,genreCfg:genreCfg};}
 async function gistFetch(method,path,body){
   const res=await fetch("https://api.github.com"+path,{method:method,
     headers:{"Authorization":"Bearer "+settings.sync.token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},
@@ -837,6 +846,9 @@ function mergeCloud(cloud){
   boardPosts=mByIdB(boardPosts,cloud.board);
   boardAns=mByIdB(boardAns,cloud.bans);
   var cfg=cloud.figsByU||{};Object.keys(cfg).forEach(function(uid){var c=cfg[uid],l=figsByU[uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))figsByU[uid]=c;});
+  var cgc=cloud.genreCfg||{};
+  if(cgc.hidden){Object.keys(cgc.hidden).forEach(function(g){var c2=cgc.hidden[g],l2=genreCfg.hidden[g];if(!l2||((c2&&c2.t)||0)>((l2&&l2.t)||0))genreCfg.hidden[g]=c2;});}
+  if(cgc.seedGenre&&((cgc.seedT||0)>(genreCfg.seedT||0))){genreCfg.seedGenre=cgc.seedGenre;genreCfg.seedT=cgc.seedT;}
   var clk=cloud.likes||{};Object.keys(clk).forEach(function(qid){likes[qid]=likes[qid]||{};Object.keys(clk[qid]).forEach(function(uid){var c=clk[qid][uid],l=likes[qid][uid];if(!l||((c&&c.t)||0)>((l&&l.t)||0))likes[qid][uid]=c;});});
   (cloud.genres||[]).forEach(function(g){if(genres.indexOf(g)<0)genres.push(g);});
   if(cloud.genrePub)settings.genrePub=Object.assign({},settings.genrePub||{},cloud.genrePub);if(cloud.snap&&!settings.snap)settings.snap=cloud.snap;
@@ -903,18 +915,78 @@ function mergeCloud(cloud){
   localStorage.setItem(LS_BFAV,JSON.stringify(bFav));
   localStorage.setItem(LS_BDEL,JSON.stringify([...bDel]));
   localStorage.setItem(LS_FIGSBYU,JSON.stringify(figsByU));
+  localStorage.setItem(LS_GENRECFG,JSON.stringify(genreCfg));
 }
 function showModal(node){var ov=el("div","modal");var box=el("div","modal-box");box.appendChild(node);var cr=el("div","row");cr.style.cssText="margin-top:12px;justify-content:flex-end";var cb=el("button","btn sec","閉じる");cb.onclick=function(){ov.remove();};cr.appendChild(cb);box.appendChild(cr);ov.appendChild(box);document.body.appendChild(ov);return ov;}
-function inGenre(q){return (q.genre||"ディスプレイ関連")===currentGenre;}
+function inGenre(q){return (q.genre||seedGenreName())===currentGenre;}
 function saveGenres(){store.set(LS_GENRES,genres);}
 function setGenre(g){currentGenre=g;localStorage.setItem(LS_CURGENRE,g);setGenreBadge();render(_view||"home");}
 function setGenreBadge(){var e=$("#genreBadge");if(e){e.textContent="📂 "+currentGenre+" ▼";e.onclick=openGenreSwitcher;}}
+function renameGenre(old,nu){
+  nu=(nu||"").trim();
+  if(!nu){toast("ジャンル名を入力してください");return false;}
+  if(nu===old)return false;
+  if(visibleGenres().indexOf(nu)>=0){toast("その名前のジャンルは既にあります");return false;}
+  var t=Date.now();
+  if(genres.indexOf(nu)<0)genres.push(nu);
+  genreCfg.hidden[old]={h:1,t:t};
+  genreCfg.hidden[nu]={h:0,t:t};
+  if(seedGenreName()===old){genreCfg.seedGenre=nu;genreCfg.seedT=t;}
+  saveGenreCfg();saveGenres();
+  var chg=false;
+  userQ.forEach(function(q2){if(q2.genre===old){q2.genre=nu;q2.updatedAt=t;chg=true;}});
+  if(chg)store.set(LS_USERQ,userQ);
+  if(catOrder[old]){catOrder[nu]={list:(catOrder[old].list||[]).slice(),t:t};catOrder[old]=null;store.set(LS_CATORDER,catOrder);}
+  if(settings.genrePub&&settings.genrePub[old]!=null){settings.genrePub[nu]=settings.genrePub[old];settings.genrePub[old]=null;store.set(LS_SET,settings);}
+  var cchg=false;
+  Object.keys(collByU).forEach(function(uid){(collByU[uid]||[]).forEach(function(c2){if(c2.genre===old){c2.genre=nu;cchg=true;}});});
+  if(cchg)store.set(LS_COLLBYU,collByU);
+  if(currentGenre===old){currentGenre=nu;localStorage.setItem(LS_CURGENRE,nu);}
+  return true;
+}
 function openGenreSwitcher(){
   var c=el("div");c.appendChild(el("h2",null,"ジャンル切替 / 追加"));var ov;
-  c.appendChild(el("p","small muted","選択中のジャンルの問題だけを出題・集計します。"));
-  genres.forEach(function(g){var b=el("button","btn sec",(g===currentGenre?"● ":"")+g);b.style.cssText="display:block;width:100%;text-align:left;margin:4px 0";b.onclick=function(){ov.remove();setGenre(g);};c.appendChild(b);});
+  c.appendChild(el("p","small muted","タップで切替 ／ ✏で名前変更 ／ 長押しで削除（問題は消えません・下の「削除済みジャンル」からいつでも復元できます）。"));
+  var host=el("div");c.appendChild(host);
+  function draw(){
+    host.innerHTML="";
+    visibleGenres().forEach(function(g){
+      var rw=el("div","row");rw.style.cssText="gap:6px;margin:4px 0;flex-wrap:nowrap;align-items:center";
+      var b=el("button","btn sec",(g===currentGenre?"● ":"")+g);
+      b.style.cssText="flex:1;text-align:left;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none";
+      b.style.touchAction="pan-y";
+      b.addEventListener("contextmenu",function(ev){ev.preventDefault();});
+      var lp=null,lpFired=false,sx=0,sy=0;
+      b.addEventListener("pointerdown",function(ev){sx=ev.clientX;sy=ev.clientY;lpFired=false;
+        lp=setTimeout(async function(){lp=null;lpFired=true;if(navigator.vibrate)navigator.vibrate(30);
+          if(visibleGenres().length<=1){toast("最後のジャンルは削除できません");return;}
+          var ok=await confirmYesNo("ジャンルの削除","「"+g+"」を一覧から削除しますか？（問題は消えません。後から復元できます）");
+          if(!ok){draw();return;}
+          genreCfg.hidden[g]={h:1,t:Date.now()};saveGenreCfg();
+          if(currentGenre===g){currentGenre=visibleGenres()[0];localStorage.setItem(LS_CURGENRE,currentGenre);setGenreBadge();render(_view||"home");}
+          toast("削除しました（復元できます）");draw();
+        },600);});
+      b.addEventListener("pointermove",function(ev){if(lp&&(Math.abs(ev.clientX-sx)>8||Math.abs(ev.clientY-sy)>8)){clearTimeout(lp);lp=null;}});
+      b.addEventListener("pointerup",function(){if(lp){clearTimeout(lp);lp=null;}});
+      b.addEventListener("pointercancel",function(){if(lp){clearTimeout(lp);lp=null;}});
+      b.onclick=function(){if(lpFired){lpFired=false;return;}ov.remove();setGenre(g);};
+      var ed=el("button","btn sec","✏");ed.title="名前を変更";
+      ed.onclick=function(){var nu=prompt("新しいジャンル名",g);if(nu==null)return;if(renameGenre(g,nu)){toast("ジャンル名を変更しました");setGenreBadge();render(_view||"home");draw();}};
+      rw.appendChild(b);rw.appendChild(ed);host.appendChild(rw);
+    });
+    var hiddenList=genres.filter(function(g){var h=genreCfg.hidden[g];return h&&h.h;});
+    if(hiddenList.length){
+      host.appendChild(el("h3",null,"🗑 削除済みジャンル（タップで復元）"));
+      hiddenList.forEach(function(g){var rb=el("button","btn sec","↩ "+g+" を復元");rb.style.cssText="display:block;width:100%;text-align:left;margin:3px 0";rb.onclick=function(){genreCfg.hidden[g]={h:0,t:Date.now()};saveGenreCfg();toast("復元しました");draw();};host.appendChild(rb);});
+    }
+  }
+  draw();
   var row=el("div","row");row.style.marginTop="10px";var ni=el("input");ni.type="text";ni.placeholder="新しいジャンル名（例: ソフトウェア関連）";ni.style.flex="1";var ab=el("button","btn","＋ 追加");
-  ab.onclick=function(){var nm=ni.value.trim();if(!nm){toast("ジャンル名を入力してください");return;}if(genres.indexOf(nm)>=0){toast("既に存在します");return;}genres.push(nm);saveGenres();ov.remove();setGenre(nm);toast("ジャンルを追加しました");};
+  ab.onclick=function(){var nm=ni.value.trim();if(!nm){toast("ジャンル名を入力してください");return;}
+    if(visibleGenres().indexOf(nm)>=0){toast("既に存在します");return;}
+    if(genres.indexOf(nm)>=0){genreCfg.hidden[nm]={h:0,t:Date.now()};saveGenreCfg();}
+    else{genres.push(nm);saveGenres();}
+    ov.remove();setGenre(nm);toast("ジャンルを追加しました");};
   row.appendChild(ni);row.appendChild(ab);c.appendChild(row);
   ov=showModal(c);
 }
@@ -1243,10 +1315,11 @@ function renderHome(){
   srs.appendChild(sbtn);
   srs.appendChild(el("p","small muted",`正解で次回出題が先送り（${settings.srs.step1}→${settings.srs.step2}→…日, 易しさ係数で間隔拡大）、不正解で約${settings.srs.lapseMin}分後に再出題。間隔は「設定」で変更できます。`));
   m.appendChild(srs);
-  if(collections.length){
+  var collsHere=collectionsInGenre();
+  if(collsHere.length){
     var cc=el("div","card");
     cc.appendChild(el("h2",null,"⭐ コレクション（お気に入り）"));
-    collections.forEach(function(c){
+    collsHere.forEach(function(c){
       var act=questionsActive().filter(function(qq){return c.qids.indexOf(qq.id)>=0;});
       var rowx=el("div","genitem");
       rowx.appendChild(el("div",null,`<b>${escapeHtml(c.name)}</b> <span class="small muted">${act.length}/${c.qids.length}問（出題可/登録）</span>`));
@@ -1603,12 +1676,19 @@ function showResult(){
 /* ====================== Claude 解説 ====================== */
 function saveCollections(){collByU[currentUser]=collections;store.set(LS_COLLBYU,collByU);}
 function saveNotes(){notesByU[currentUser]=notes;store.set(LS_NOTESBYU,notesByU);}
-function collectionsHaving(id){return collections.filter(function(c){return c.qids.indexOf(id)>=0;});}
+function collGenre(c){
+  var g=c.genre;
+  if(g&&!(genreCfg.hidden[g]&&genreCfg.hidden[g].h))return g;
+  var q=(c.qids&&c.qids.length)?findQById(c.qids[0]):null;
+  return q?(q.genre||seedGenreName()):(g||seedGenreName());
+}
+function collectionsInGenre(){return collections.filter(function(c){return collGenre(c)===currentGenre;});}
+function collectionsHaving(id){return collectionsInGenre().filter(function(c){return c.qids.indexOf(id)>=0;});}
 function renderFavPanel(q,host,btn){
   host.innerHTML="";
   var box=el("div","card");box.style.marginTop="8px";
-  box.appendChild(el("div","small muted","この問題を登録するコレクションを選択（複数可）"));
-  collections.forEach(function(c){
+  box.appendChild(el("div","small muted","この問題を登録するコレクションを選択（複数可・ジャンル「"+currentGenre+"」のコレクション）"));
+  collectionsInGenre().forEach(function(c){
     var lab=el("label","row");lab.style.cssText="align-items:center;gap:8px;color:var(--txt)";
     var cb=el("input");cb.type="checkbox";cb.style.width="auto";cb.checked=c.qids.indexOf(q.id)>=0;
     cb.onchange=function(){if(cb.checked){if(c.qids.indexOf(q.id)<0)c.qids.push(q.id);}else{c.qids=c.qids.filter(function(x){return x!==q.id;});}saveCollections();btn.textContent=collectionsHaving(q.id).length?"⭐ コレクション登録済み":"☆ コレクション";};
@@ -1618,7 +1698,7 @@ function renderFavPanel(q,host,btn){
   var nrow=el("div","row");nrow.style.marginTop="8px";
   var ni=el("input");ni.type="text";ni.placeholder="新しいコレクション名";ni.style.flex="1";
   var nb=el("button","btn","＋作成して追加");
-  nb.onclick=function(){var nm=ni.value.trim();if(!nm){toast("名前を入力してください");return;}collections.push({id:"c"+Date.now(),name:nm,qids:[q.id]});saveCollections();renderFavPanel(q,host,btn);btn.textContent="⭐ コレクション登録済み";toast("作成しました");};
+  nb.onclick=function(){var nm=ni.value.trim();if(!nm){toast("名前を入力してください");return;}collections.push({id:"c"+Date.now(),name:nm,qids:[q.id],genre:currentGenre});saveCollections();renderFavPanel(q,host,btn);btn.textContent="⭐ コレクション登録済み";toast("作成しました");};
   nrow.appendChild(ni);nrow.appendChild(nb);box.appendChild(nrow);
   host.appendChild(box);
 }
@@ -1788,8 +1868,10 @@ function renderGen(){
   card.innerHTML+=`
     <p class="small muted">条件を指定してClaudeに問題を作らせ、確認してから追加できます。繰り返せば数百〜1000問規模まで構築可能です。
     APIキー設定時はこの場で生成、未設定時は無料のコピー方式（claude.aiで生成→JSONを貼り付け）になります。</p>
-    <label>カテゴリ（カンマ区切り）</label>
-    <input id="g_cat" type="text" value="IGZO, プロセス, LCD">
+    <label>カテゴリ（登録済みからタップで選択・複数可）</label>
+    <div id="g_catwrap" class="row" style="margin:4px 0"></div>
+    <label>新しいカテゴリ（登録済みに無い名前を使いたい時だけ・カンマ区切りで複数可）</label>
+    <input id="g_cat" type="text" placeholder="通常は上から選ぶだけでOK。新しい分野名はここに入力">
     <div class="row">
       <div style="flex:1;min-width:140px"><label>難易度</label>
         <select id="g_diff"><option value="mix">混在</option><option value="1">易</option><option value="2">標準</option><option value="3">難</option></select></div>
@@ -1819,8 +1901,16 @@ function renderGen(){
 
   const preview=el("div");preview.id="gen_preview";m.appendChild(preview);
 
+  var g_selCats=new Set();
+  (function(){
+    var wrapC=card.querySelector("#g_catwrap");
+    var known=uniqueCategories();
+    catsForGenre().forEach(function(c2){if(known.indexOf(c2)<0)known.push(c2);});
+    if(!known.length){wrapC.appendChild(el("span","small muted","登録済みカテゴリはまだありません。下の欄に入力してください。"));return;}
+    known.forEach(function(c2){var ch=el("span","chip",escapeHtml(c2));ch.onclick=function(){if(g_selCats.has(c2)){g_selCats.delete(c2);ch.classList.remove("on");}else{g_selCats.add(c2);ch.classList.add("on");}};wrapC.appendChild(ch);});
+  })();
   function opts(){return{
-    cats:card.querySelector("#g_cat").value.trim()||"指定なし",
+    cats:(function(){var a=[...g_selCats];card.querySelector("#g_cat").value.split(",").map(function(s){return s.trim();}).filter(Boolean).forEach(function(c2){if(a.indexOf(c2)<0)a.push(c2);});return a.length?a.join(", "):"指定なし";})(),
     diff:card.querySelector("#g_diff").value, type:card.querySelector("#g_type").value,
     count:parseInt(card.querySelector("#g_count").value)||10,
     topic:card.querySelector("#g_topic").value.trim()};}
@@ -2299,7 +2389,7 @@ function renderManage(){
       const hide=el("button","btn sec",isHidden?"👁 出題に戻す":"🚫 出題から除外");
       hide.onclick=()=>{setHidden(qq.id,!isHidden);draw();};
       row.appendChild(hide);
-      if(isUser&&isApprovedQ(qq)&&(settings.genrePub||{})[qq.genre||"ディスプレイ関連"]==="selected"){var pubb=el("button","btn sec",qq.publish?"🌐 公開中":"🌐 公開する");pubb.onclick=(function(id){return function(){var u=userQ.find(function(x){return x.id===id;});if(!u)return;u.publish=!u.publish;u.updatedAt=Date.now();store.set(LS_USERQ,userQ);toast(u.publish?"公開対象にしました":"公開対象から外しました");draw();};})(qq.id);row.appendChild(pubb);}
+      if(isUser&&isApprovedQ(qq)&&(settings.genrePub||{})[qq.genre||seedGenreName()]==="selected"){var pubb=el("button","btn sec",qq.publish?"🌐 公開中":"🌐 公開する");pubb.onclick=(function(id){return function(){var u=userQ.find(function(x){return x.id===id;});if(!u)return;u.publish=!u.publish;u.updatedAt=Date.now();store.set(LS_USERQ,userQ);toast(u.publish?"公開対象にしました":"公開対象から外しました");draw();};})(qq.id);row.appendChild(pubb);}
       it.appendChild(row);listHost.appendChild(it);
     });
     typeset(listHost);
@@ -2556,9 +2646,9 @@ var guestQ=null;
 async function publishSnapshot(){
   if(!settings.sync||!settings.sync.token){toast("GitHubトークンが必要です（設定→クラウド同期）");return;}
   var gp=settings.genrePub||{};
-  var pub=allQuestions().filter(function(q){if(!isApprovedQ(q))return false;var mode=gp[q.genre||"ディスプレイ関連"];if(mode==="all")return true;if(mode==="selected")return !!q.publish;return false;});
+  var pub=allQuestions().filter(function(q){if(!isApprovedQ(q))return false;var mode=gp[q.genre||seedGenreName()];if(mode==="all")return true;if(mode==="selected")return !!q.publish;return false;});
   if(!pub.length){toast("公開対象の問題がありません（ジャンルの公開設定を確認）");return;}
-  var clean=pub.map(function(q){var o={id:q.id,type:q.type,difficulty:q.difficulty,category:q.category,question:q.question,explanation:q.explanation||"",genre:q.genre||"ディスプレイ関連"};if(q.type==="mc"){o.choices=q.choices;o.answer=q.answer;}else if(q.type==="fill"){o.answer=q.answer;}else{o.modelAnswer=q.modelAnswer;o.keyPoints=q.keyPoints||[];}if(q.figure)o.figure=q.figure;if(q.links)o.links=q.links;return o;});
+  var clean=pub.map(function(q){var o={id:q.id,type:q.type,difficulty:q.difficulty,category:q.category,question:q.question,explanation:q.explanation||"",genre:q.genre||seedGenreName()};if(q.type==="mc"){o.choices=q.choices;o.answer=q.answer;}else if(q.type==="fill"){o.answer=q.answer;}else{o.modelAnswer=q.modelAnswer;o.keyPoints=q.keyPoints||[];}if(q.figure)o.figure=q.figure;if(q.links)o.links=q.links;return o;});
   var gs=[];clean.forEach(function(q){if(gs.indexOf(q.genre)<0)gs.push(q.genre);});
   var payload=JSON.stringify({_v:1,t:Date.now(),questions:clean,genres:gs});
   settings.snap=settings.snap||{};
@@ -2950,7 +3040,7 @@ function appendBoardApprovals(m){
 }
 function renderSettings(){
   const m=$("#main");m.innerHTML="";
-  (function(){var gc=el("div","card");gc.appendChild(el("h2",null,"🔗 ゲスト用URL"));gc.appendChild(el("p","small muted","このURLを送った相手は「クイズのみ挑戦可・他タブは閲覧のみ・設定は非表示」のゲストとして利用できます。"));var url=location.href.split(/[?#]/)[0]+"?guest=1"+(settings.snap&&settings.snap.gistId?("&snap="+settings.snap.gistId):"");var inp=el("input");inp.type="text";inp.value=url;inp.readOnly=true;inp.onclick=function(){inp.select();};gc.appendChild(inp);var row=el("div","row");row.style.marginTop="8px";var cp=el("button","btn","📋 URLをコピー");cp.onclick=function(){inp.select();var done=function(){toast("ゲスト用URLをコピーしました");};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(done).catch(function(){try{document.execCommand("copy");done();}catch(e){toast("コピー不可。URLを選択してコピーしてください");}});}else{try{document.execCommand("copy");done();}catch(e){toast("コピーできませんでした");}}};row.appendChild(cp);gc.appendChild(row);m.appendChild(gc);})();(function(){if(!isAdmin())return;var pc=el("div","card");pc.appendChild(el("h2",null,"🌐 ゲスト公開（スナップショット）"));pc.appendChild(el("p","small muted","ジャンルごとに公開方法を選び、下の「更新」を押すと承認済み問題がゲストに公開されます（承認待ち・差し戻しは公開されません）。"));genres.forEach(function(gn){var rw=el("div","row");rw.style.cssText="align-items:center;gap:8px;margin:3px 0";var lb=el("div");lb.style.flex="1";lb.textContent="📂 "+gn;var sel=el("select");[["off","非公開"],["all","承認済みを全部公開"],["selected","選んだ問題だけ公開"]].forEach(function(o){var op=el("option");op.value=o[0];op.textContent=o[1];sel.appendChild(op);});sel.value=(settings.genrePub&&settings.genrePub[gn])||"off";sel.onchange=(function(g,s){return function(){settings.genrePub=settings.genrePub||{};settings.genrePub[g]=s.value;store.set(LS_SET,settings);toast("公開設定を保存しました");};})(gn,sel);rw.appendChild(lb);rw.appendChild(sel);pc.appendChild(rw);});var st=el("p","small muted");if(settings.snap&&settings.snap.gistId){st.textContent="公開中: "+(settings.snap.count||0)+"問 ｜ 最終更新 "+(settings.snap.t?new Date(settings.snap.t).toLocaleString():"-");}else{st.textContent="まだ公開していません。";}pc.appendChild(st);var br=el("div","row");br.style.marginTop="8px";var ub=el("button","btn","🌐 公開スナップショットを更新");ub.onclick=function(){publishSnapshot();};br.appendChild(ub);pc.appendChild(br);pc.appendChild(el("p","small muted","※「選んだ問題だけ」は管理タブで各問題の「🌐公開する」で対象指定（内蔵問題は個別選択不可・全部公開のみ対象）。"));m.appendChild(pc);})();
+  (function(){var gc=el("div","card");gc.appendChild(el("h2",null,"🔗 ゲスト用URL"));gc.appendChild(el("p","small muted","このURLを送った相手は「クイズのみ挑戦可・他タブは閲覧のみ・設定は非表示」のゲストとして利用できます。"));var url=location.href.split(/[?#]/)[0]+"?guest=1"+(settings.snap&&settings.snap.gistId?("&snap="+settings.snap.gistId):"");var inp=el("input");inp.type="text";inp.value=url;inp.readOnly=true;inp.onclick=function(){inp.select();};gc.appendChild(inp);var row=el("div","row");row.style.marginTop="8px";var cp=el("button","btn","📋 URLをコピー");cp.onclick=function(){inp.select();var done=function(){toast("ゲスト用URLをコピーしました");};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(done).catch(function(){try{document.execCommand("copy");done();}catch(e){toast("コピー不可。URLを選択してコピーしてください");}});}else{try{document.execCommand("copy");done();}catch(e){toast("コピーできませんでした");}}};row.appendChild(cp);gc.appendChild(row);m.appendChild(gc);})();(function(){if(!isAdmin())return;var pc=el("div","card");pc.appendChild(el("h2",null,"🌐 ゲスト公開（スナップショット）"));pc.appendChild(el("p","small muted","ジャンルごとに公開方法を選び、下の「更新」を押すと承認済み問題がゲストに公開されます（承認待ち・差し戻しは公開されません）。"));visibleGenres().forEach(function(gn){var rw=el("div","row");rw.style.cssText="align-items:center;gap:8px;margin:3px 0";var lb=el("div");lb.style.flex="1";lb.textContent="📂 "+gn;var sel=el("select");[["off","非公開"],["all","承認済みを全部公開"],["selected","選んだ問題だけ公開"]].forEach(function(o){var op=el("option");op.value=o[0];op.textContent=o[1];sel.appendChild(op);});sel.value=(settings.genrePub&&settings.genrePub[gn])||"off";sel.onchange=(function(g,s){return function(){settings.genrePub=settings.genrePub||{};settings.genrePub[g]=s.value;store.set(LS_SET,settings);toast("公開設定を保存しました");};})(gn,sel);rw.appendChild(lb);rw.appendChild(sel);pc.appendChild(rw);});var st=el("p","small muted");if(settings.snap&&settings.snap.gistId){st.textContent="公開中: "+(settings.snap.count||0)+"問 ｜ 最終更新 "+(settings.snap.t?new Date(settings.snap.t).toLocaleString():"-");}else{st.textContent="まだ公開していません。";}pc.appendChild(st);var br=el("div","row");br.style.marginTop="8px";var ub=el("button","btn","🌐 公開スナップショットを更新");ub.onclick=function(){publishSnapshot();};br.appendChild(ub);pc.appendChild(br);pc.appendChild(el("p","small muted","※「選んだ問題だけ」は管理タブで各問題の「🌐公開する」で対象指定（内蔵問題は個別選択不可・全部公開のみ対象）。"));m.appendChild(pc);})();
   (function(){var bc=el("div","card");bc.appendChild(el("h2",null,"💾 バックアップ / 復元（成績・履歴・コレクション・問題ぜんぶ）"));bc.appendChild(el("p","small muted","この端末の全データ（成績・履歴・コレクション/お気に入り・メモ・問題・ユーザー・いいね等）をファイルに保存／復元します。APIキー・同期トークンは安全のため含まれません（復元後に再入力してください）。"));var er=el("div","row");er.style.flexWrap="wrap";var eb=el("button","btn","⬇ バックアップを保存");eb.onclick=function(){exportBackup();};er.appendChild(eb);var il=el("label","btn sec","⬆ 復元（統合）");il.style.cssText="margin:0;cursor:pointer";var iin=el("input");iin.type="file";iin.accept=".json";iin.style.display="none";iin.onchange=function(e){var f=e.target.files[0];if(!f)return;var fr=new FileReader();fr.onload=function(){var bk;try{bk=JSON.parse(fr.result);}catch(err){toast("ファイルの形式が不正です");return;}if(!confirm("バックアップを現在のデータに統合して復元します。よろしいですか？"))return;importBackup(bk,false);};fr.readAsText(f);iin.value="";};il.appendChild(iin);er.appendChild(il);var rl=el("label","btn sec","⚠ 置き換えて復元（現在を全消去）");rl.style.cssText="margin:0;cursor:pointer";var rin=el("input");rin.type="file";rin.accept=".json";rin.style.display="none";rin.onchange=function(e){var f=e.target.files[0];if(!f)return;var fr=new FileReader();fr.onload=function(){var bk;try{bk=JSON.parse(fr.result);}catch(err){toast("ファイルの形式が不正です");return;}if(!confirm("現在の全データを消去し、バックアップの内容で置き換えます。取り消せません。よろしいですか？"))return;importBackup(bk,true);};fr.readAsText(f);rin.value="";};rl.appendChild(rin);er.appendChild(rl);bc.appendChild(er);m.appendChild(bc);})();
   const card=el("div","card");
   card.appendChild(el("h2",null,"設定 — Claude 解説・生成連携"));
