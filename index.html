@@ -1036,7 +1036,9 @@ function norm(s){return (s||"").toString().trim().toLowerCase()
   .replace(/[　\s]+/g,"")
   .replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));}
 function activeApproved(){return questionsActive().filter(isApprovedQ);}
-function uniqueCategories(){const set=new Set();activeApproved().forEach(q=>(q.category||[]).forEach(c=>set.add(c)));return[...set].sort();}
+const JA_COLLATOR=new Intl.Collator("ja");
+function jaSort(arr){return arr.sort(JA_COLLATOR.compare);}
+function uniqueCategories(){const set=new Set();activeApproved().forEach(q=>(q.category||[]).forEach(c=>set.add(c)));return jaSort([...set]);}
 function catsForGenre(){var e=catOrder[currentGenre];if(e&&e.list&&e.list.length)return e.list.slice();return uniqueCategories();}
 function saveCatOrder(list){catOrder[currentGenre]={list:list.slice(),t:Date.now()};store.set(LS_CATORDER,catOrder);}
 function catStatList(){
@@ -1157,8 +1159,9 @@ function openCatManager(){
   draw();c.appendChild(host);
   var rw2=el("div","row");rw2.style.marginTop="10px";
   var ab=el("button","btn","＋ カテゴリを追加");ab.onclick=function(){if(ov)ov.remove();openCatAdder(list);};
+  var az=el("button","btn sec","🔤 あいうえお順に並べ替え");az.onclick=function(){jaSort(list);saveCatOrder(list);draw();renderHome();toast("あいうえお順に並べ替えました");};
   var rs=el("button","btn sec","自動（全カテゴリ）に戻す");rs.onclick=function(){catOrder[currentGenre]=null;store.set(LS_CATORDER,catOrder);if(ov)ov.remove();toast("自動表示に戻しました");renderHome();};
-  rw2.appendChild(ab);rw2.appendChild(rs);c.appendChild(rw2);
+  rw2.appendChild(ab);rw2.appendChild(az);rw2.appendChild(rs);c.appendChild(rw2);
   ov=showModal(c);
 }
 function openCatAdder(curList){
@@ -1171,7 +1174,7 @@ function openCatAdder(curList){
     host.innerHTML="";
     var stats=catStatList().filter(function(s){return curList.indexOf(s.cat)<0;});
     var k=sortSel.value;
-    stats.sort(function(a,b){if(k==="name")return String(a.cat).localeCompare(String(b.cat));return (b[k]||0)-(a[k]||0);});
+    stats.sort(function(a,b){if(k==="name")return JA_COLLATOR.compare(String(a.cat),String(b.cat));return (b[k]||0)-(a[k]||0);});
     if(!stats.length){host.appendChild(el("p","muted","追加できるカテゴリがありません（すべて追加済み）。"));return;}
     stats.forEach(function(s){
       var it=el("div","genitem");it.style.cursor="pointer";
@@ -2062,7 +2065,7 @@ function catPicker(initialSel){
   var selRow=el("div","row");selRow.style.cssText="margin:4px 0;flex-wrap:wrap";wrap.appendChild(selRow);
   var inp=el("input");inp.type="text";inp.placeholder="カテゴリ名を入力して絞り込み（例: IGZO）";wrap.appendChild(inp);
   var res=el("div","row");res.style.cssText="flex-wrap:wrap;gap:6px;margin:6px 0;max-height:130px;overflow-y:auto;align-content:flex-start";wrap.appendChild(res);
-  function knownCats(){var k=uniqueCategories();catsForGenre().forEach(function(c){if(k.indexOf(c)<0)k.push(c);});return k;}
+  function knownCats(){var k=uniqueCategories();catsForGenre().forEach(function(c){if(k.indexOf(c)<0)k.push(c);});return jaSort(k);}
   function drawSel(){
     selRow.innerHTML="";
     if(!sel.length){selRow.appendChild(el("span","small muted","選択中のカテゴリ: なし（下の一覧をタップ、または入力して絞り込み）"));return;}
