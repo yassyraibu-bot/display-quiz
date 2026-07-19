@@ -2030,22 +2030,30 @@ function fillSample(q){
   toast("記入例を入れました。内容を書き換えてください");
 }
 function importWithDupCheck(arr){
-  var known=allQuestions().map(function(q){return {q:q,t:triSet(q.question||"")};});
+  var idxById={};userQ.forEach(function(q,i){if(q&&q.id)idxById[q.id]=i;});
+  var updates=[],newOnes=[];
+  arr.forEach(function(o){if(o&&o.id&&idxById[o.id]!=null)updates.push(o);else newOnes.push(o);});
+  var updIds=new Set(updates.map(function(u){return u.id;}));
+  var known=allQuestions().filter(function(q){return !updIds.has(q.id);}).map(function(q){return {q:q,t:triSet(q.question||"")};});
   var dups=[],fresh=[];
-  arr.forEach(function(o){
+  newOnes.forEach(function(o){
     var ts=triSet(o.question||"");var hit=null;
     for(var i=0;i<known.length;i++){if(tooSimilar(ts,known[i].t)){hit=known[i].q;break;}}
     if(hit)dups.push({o:o,hit:hit});else{fresh.push(o);known.push({q:o,t:ts});}
   });
   function commit(list){
-    if(!list.length){toast("取り込む問題がありません");return;}
-    list.forEach(function(o){if(!o.updatedAt)o.updatedAt=Date.now();});
-    userQ=userQ.concat(list);store.set(LS_USERQ,userQ);toast("インポート完了 "+list.length+"問");renderAdd();
+    if(!list.length&&!updates.length){toast("取り込む問題がありません");return;}
+    var now=Date.now();
+    updates.forEach(function(o){o.updatedAt=now;userQ[idxById[o.id]]=o;});
+    list.forEach(function(o){if(!o.updatedAt)o.updatedAt=now;});
+    userQ=userQ.concat(list);store.set(LS_USERQ,userQ);
+    toast("インポート完了 新規 "+list.length+"問"+(updates.length?("・上書き更新 "+updates.length+"問"):""));renderAdd();
   }
   if(!dups.length){commit(fresh);return;}
   var ov;var c=el("div");
   c.appendChild(el("h2",null,"⚠ 既存と重複する問題があります"));
-  c.appendChild(el("p","small muted",arr.length+"問のうち "+dups.length+"問が既存問題（内蔵・AI生成・手動作成すべて）と似ています。新規は "+fresh.length+"問です。"));
+  if(updates.length)c.appendChild(el("p","small muted","※同一IDの "+updates.length+"問は重複ではなく上書き更新として扱います（下のどのボタンでも適用）。"));
+  c.appendChild(el("p","small muted",newOnes.length+"問のうち "+dups.length+"問が既存問題（内蔵・AI生成・手動作成すべて）と似ています。新規は "+fresh.length+"問です。"));
   dups.slice(0,20).forEach(function(d){
     var it=el("div","genitem");
     it.appendChild(el("div",null,escapeHtml((d.o.question||"").slice(0,70))));
@@ -2055,7 +2063,7 @@ function importWithDupCheck(arr){
   if(dups.length>20)c.appendChild(el("p","small muted","…他 "+(dups.length-20)+"件"));
   var row=el("div","row");row.style.marginTop="12px";row.style.flexWrap="wrap";
   var b1=el("button","btn","重複を除いて "+fresh.length+"問だけ取り込む");b1.onclick=function(){if(ov)ov.remove();commit(fresh);};
-  var b2=el("button","btn sec","すべて取り込む（"+arr.length+"問）");b2.onclick=function(){if(ov)ov.remove();commit(arr);};
+  var b2=el("button","btn sec","すべて取り込む（"+newOnes.length+"問）");b2.onclick=function(){if(ov)ov.remove();commit(newOnes);};
   if(fresh.length)row.appendChild(b1);row.appendChild(b2);c.appendChild(row);
   ov=showModal(c);
 }
