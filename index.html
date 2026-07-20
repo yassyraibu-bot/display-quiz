@@ -68,8 +68,10 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
   .choice{display:block;width:100%;text-align:left;background:var(--panel2);color:var(--txt);
     border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0;cursor:pointer;font-size:14px}
   .choice:hover{border-color:var(--accent)}
-  .choice.correct{border-color:var(--ok);background:rgba(52,211,153,.12)}
-  .choice.wrong{border-color:var(--ng);background:rgba(248,113,113,.12)}
+  .choice.correct{border-color:var(--ok);background:rgba(52,211,153,.28);font-weight:700}
+  .choice.correct::after{content:" ✓ 正解";color:var(--ok);font-weight:700}
+  .choice.wrong{border-color:var(--ng);background:rgba(248,113,113,.16)}
+  .choice.wrong::after{content:" ✗ あなたの解答";color:var(--ng);font-weight:700}
   .feedback{border-radius:10px;padding:14px;margin-top:14px;font-size:14px}
   .feedback.ok{background:rgba(52,211,153,.1);border:1px solid var(--ok)}
   .feedback.ng{background:rgba(248,113,113,.1);border:1px solid var(--ng)}
@@ -1457,10 +1459,35 @@ function renderQfbPanel(q,host,btn){
   sv.onclick=function(){var n=ta.value.trim();if(!n){toast("内容を入力してください");return;}qfeedback.push({t:Date.now(),qid:q.id,uid:currentUser,note:n});saveQFB();btn.textContent="💬 疑問・指摘 ("+qfeedback.filter(function(x){return x.qid===q.id;}).length+")";renderQfbPanel(q,host,btn);toast("送信しました");};
   r.appendChild(sv);box.appendChild(r);host.appendChild(box);
 }
+function revealAnswer(q,area){
+  // 「わからない/スキップ」で問題に解答せず進めたとき、正解を表示する（クリック解答時と同じ見え方に揃える）。
+  if(q.type==="mc"){
+    var cs=area.querySelectorAll(".choice");
+    for(var i=0;i<cs.length;i++){if(cs[i].dataset.i==q.answer)cs[i].classList.add("correct");}
+  }else if(q.type==="fill"){
+    var sets=Array.isArray(q.answer[0])?q.answer:[q.answer];
+    var line=sets.map(function(s,i){
+      return (sets.length>1?("空欄"+(i+1)+": "):"")
+        +'<b style="color:var(--ok)">正解＝'+escapeHtml(s[0])+'</b>'
+        +(s.length>1?' <span class="muted">（他に可: '+s.slice(1).map(escapeHtml).join(" , ")+'）</span>':'');
+    }).join("<br>");
+    area.appendChild(el("div","small",line));
+    var fi=area.querySelectorAll("input,button");for(var j=0;j<fi.length;j++)fi[j].disabled=true;
+  }else if(q.type==="reason"){
+    var ma=el("div","card");ma.style.marginTop="10px";
+    ma.appendChild(el("h3",null,"模範解答"));
+    ma.appendChild(el("div","explain",escapeHtml(q.modelAnswer||"（未登録）")));
+    if(q.keyPoints&&q.keyPoints.length){ma.appendChild(el("h3",null,"採点ポイント"));var ul=el("ul","kpts");for(var k=0;k<q.keyPoints.length;k++)ul.appendChild(el("li",null,escapeHtml(q.keyPoints[k])));ma.appendChild(ul);}
+    area.appendChild(ma);
+    var ri=area.querySelectorAll("textarea,button");for(var t=0;t<ri.length;t++)ri[t].disabled=true;
+    typeset(ma);
+  }
+}
 function quickAnswer(q,correct,area,btns){
   if(session.__answered)return; session.__answered=true;
   if(btns)btns.forEach(function(b){b.disabled=true;});
   if(session.exam){recordResult(q,correct);advanceQuiz();return;}
+  revealAnswer(q,area);
   afterAnswer(q,correct,area);
 }
 function showQuestion(){
