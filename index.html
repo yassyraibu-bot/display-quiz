@@ -1604,8 +1604,16 @@ function renderFill(q,area){
     for(var j=0;j<inputs.length;j++){var a=norm(inputs[j].value);if(!sets[j].some(function(x){return norm(x)===a;}))ok=false;}
     inputs.forEach(function(x){x.disabled=true;});sub.disabled=true;
     if(session.exam){recordResult(q,ok);advanceQuiz();return;}
-    var lines=sets.map(function(s,i){return (sets.length>1?("空欄"+(i+1)+": "):"")+"あなた="+escapeHtml(inputs[i].value)+" ／ 許容="+s.map(escapeHtml).join(" , ");}).join("<br>");
-    area.appendChild(el("div","small muted",lines));
+    var lines=sets.map(function(s,i){
+      var ua=norm(inputs[i].value);var blankOk=s.some(function(x){return norm(x)===ua;});
+      var head=(sets.length>1?("空欄"+(i+1)+": "):"");
+      var yours="あなた＝"+escapeHtml(inputs[i].value||"（無回答）");
+      if(blankOk)return head+'<span style="color:var(--ok);font-weight:700">⭕正解</span> '+yours;
+      var cor='<b style="color:var(--ok)">正解＝'+escapeHtml(s[0])+'</b>';
+      var alt=(s.length>1?' <span class="muted">（他に可: '+s.slice(1).map(escapeHtml).join(" , ")+'）</span>':'');
+      return head+'<span style="color:var(--ng);font-weight:700">❌不正解</span> '+yours+' → '+cor+alt;
+    }).join("<br>");
+    area.appendChild(el("div","small",lines));
     afterAnswer(q,ok,area);
   };
 }
@@ -2053,7 +2061,10 @@ function importWithDupCheck(arr){
       updList.forEach(function(o){o.updatedAt=now;userQ[idxById[o.id]]=o;});
       list.forEach(function(o){if(!o.updatedAt)o.updatedAt=now;});
       userQ=userQ.concat(list);store.set(LS_USERQ,userQ);
-      toast("インポート完了 新規 "+list.length+"問"+(updList.length?("・上書き更新 "+updList.length+"問"):"")+(sameN?("・変更なし "+sameN+"問"):"")+(skippedN?("・古い "+skippedN+"問をスキップ"):""));renderAdd();
+      var newG=[];updList.concat(list).forEach(function(o){var g=o&&o.genre;if(!g)return;
+        if(genres.indexOf(g)>=0){if(genreCfg.hidden[g]&&genreCfg.hidden[g].h){genreCfg.hidden[g]={h:0,t:Date.now()};saveGenreCfg();if(newG.indexOf(g)<0)newG.push(g);}}
+        else{genres.push(g);saveGenres();if(newG.indexOf(g)<0)newG.push(g);}});
+      toast("インポート完了 新規 "+list.length+"問"+(updList.length?("・上書き更新 "+updList.length+"問"):"")+(sameN?("・変更なし "+sameN+"問"):"")+(skippedN?("・古い "+skippedN+"問をスキップ"):"")+(newG.length?("・新ジャンル作成: "+newG.join("/")):""));renderAdd();
     }
     if(!dups.length){commit(fresh);return;}
     var ov;var c=el("div");
