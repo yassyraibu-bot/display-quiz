@@ -72,6 +72,11 @@ window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$
   .choice.correct::after{content:" ✓ 正解";color:var(--ok);font-weight:700}
   .choice.wrong{border-color:var(--ng);background:rgba(248,113,113,.16)}
   .choice.wrong::after{content:" ✗ あなたの解答";color:var(--ng);font-weight:700}
+  .reslink{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:11px 13px;margin:7px 0;
+    border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--accent);
+    text-decoration:none;font-size:13px;line-height:1.4;word-break:break-word;min-height:44px}
+  .reslink:hover{border-color:var(--accent);background:rgba(96,165,250,.08)}
+  .reslink .ic{flex:0 0 auto;font-size:16px}
   .feedback{border-radius:10px;padding:14px;margin-top:14px;font-size:14px}
   .feedback.ok{background:rgba(52,211,153,.1);border:1px solid var(--ok)}
   .feedback.ng{background:rgba(248,113,113,.1);border:1px solid var(--ng)}
@@ -1515,6 +1520,12 @@ function quickAnswer(q,correct,area,btns){
   revealAnswer(q,area);
   afterAnswer(q,correct,area);
 }
+function linkIcon(x){var u=(x.url||"").toLowerCase(),lb=(x.label||"");
+  if(u.indexOf("youtu")>=0)return "🎬";
+  if(u.indexOf("amazon")>=0||lb.indexOf("書籍")>=0||u.indexOf("/books")>=0)return "📚";
+  return "🔗";}
+function resLinksHtml(links){return '<div class="small muted" style="margin:8px 0 2px">📎 関連資料</div>'+
+  links.map(function(x){return '<a class="reslink" href="'+escapeHtml(x.url)+'" target="_blank" rel="noopener"><span class="ic">'+linkIcon(x)+'</span><span>'+escapeHtml(x.label||x.url)+'</span></a>';}).join("");}
 function showQuestion(){
   const m=$("#main");m.innerHTML="";
   const q=session.qs[session.idx];
@@ -1543,7 +1554,7 @@ function showQuestion(){
   memoBtn.onclick=function(){if(memoBox.innerHTML){memoBox.innerHTML="";return;}favBox.innerHTML="";qfbBox.innerHTML="";renderMemoPanel(q,memoBox,memoBtn);};
   qfbBtn.onclick=function(){if(qfbBox.innerHTML){qfbBox.innerHTML="";return;}favBox.innerHTML="";memoBox.innerHTML="";renderQfbPanel(q,qfbBox,qfbBtn);};
   if(q.figure)card.appendChild(el("div","figbox",q.figure));
-  if(q.links&&q.links.length){var lkd=el("div","small muted");lkd.style.margin="0 0 8px";lkd.innerHTML="📎 関連資料: "+q.links.map(function(x){return `<a href="${escapeHtml(x.url)}" target="_blank">${escapeHtml(x.label||x.url)}</a>`;}).join(" ｜ ");card.appendChild(lkd);}
+  if(q.links&&q.links.length){var lkd=el("div");lkd.style.margin="0 0 8px";lkd.innerHTML=resLinksHtml(q.links);card.appendChild(lkd);}
   const qtext=q.type==="fill"?escapeHtml(q.question).replace(/_{2,}/g,'<span class="blank">［　　］</span>'):escapeHtml(q.question);
   card.appendChild(el("div",null,`<div style="font-size:15px;margin-bottom:10px">${qtext}</div>`));
   const area=el("div");card.appendChild(area);
@@ -2190,7 +2201,7 @@ function previewQuestionModal(obj,onConfirm){
   if(obj.type==="mc")c.appendChild(el("div",null,obj.choices.map(function(ch,i){return '<div class="choice" style="margin:4px 0">'+(i===obj.answer?"⭕ ":"− ")+escapeHtml(ch)+(i===obj.answer?'　<span class="small muted">（正解・出題時はシャッフルされます）</span>':"")+"</div>";}).join("")));
   if(obj.type==="fill")c.appendChild(el("div","small muted","正解: "+(Array.isArray(obj.answer[0])?obj.answer.map(function(a){return "["+a.join(" / ")+"]";}).join(" , "):obj.answer.join(" / "))));
   if(obj.type==="reason"){c.appendChild(el("div","small muted","模範解答: "+escapeHtml(obj.modelAnswer||"")));if(obj.keyPoints&&obj.keyPoints.length)c.appendChild(el("div","small muted","採点ポイント: "+obj.keyPoints.map(escapeHtml).join(" / ")));}
-  if(obj.links&&obj.links.length)c.appendChild(el("div","small muted","📎 関連資料: "+obj.links.map(function(x){return escapeHtml(x.label||x.url);}).join(" ｜ ")));
+  if(obj.links&&obj.links.length){var pl=el("div");pl.innerHTML=resLinksHtml(obj.links);c.appendChild(pl);}
   c.appendChild(el("h3",null,"解説"));
   c.appendChild(el("div","explain",escapeHtml(obj.explanation||"（解説未登録）")));
   var rr=el("div","row");rr.style.marginTop="12px";var ov;
@@ -2848,7 +2859,7 @@ function updateBoardBadge(){try{
   if(ab){var pn=0;if(!isGuest()&&iAmReviewer()){var bp=boardPendingForMe();pn=pendingForMe().length+bp.posts.length+bp.answers.length;}ab.textContent="承認待ち"+(pn?("("+pn+")"):"");}
 }catch(e){}}
 function bRichBody(s){var h=escapeHtml(s||"");h=h.replace(/(https?:\/\/[^\s<>&"']+)/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+"</a>";});return h.replace(/\n/g,"<br>");}
-function bLinksHtml(links){return "📎 "+links.map(function(x){return '<a href="'+escapeHtml(x.url)+'" target="_blank" rel="noopener">'+escapeHtml(x.label||x.url)+"</a>";}).join(" ｜ ");}
+function bLinksHtml(links){return resLinksHtml(links);}
 function bAttachEditor(){
   var wrap=el("div");
   wrap.appendChild(el("label",null,"図・画像（任意）"));
