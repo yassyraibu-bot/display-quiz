@@ -2295,7 +2295,7 @@ function renderAdd(){
   const ioRow=el("div","row");
   const exp=el("button","btn sec","⬇ 問題をエクスポート");
   exp.onclick=()=>{const blob=new Blob([JSON.stringify(userQ,null,2)],{type:"application/json"});
-    const a=el("a");a.href=URL.createObjectURL(blob);a.download="display-quiz-questions.json";a.click();};
+    const a=el("a");a.href=URL.createObjectURL(blob);a.download="knowlet-questions-"+new Date().toISOString().slice(0,10)+".json";a.click();};
   const impLabel=el("label","btn ghost","⬆ JSONをインポート");impLabel.style.margin="0";impLabel.style.cursor="pointer";
   const impInput=el("input");impInput.type="file";impInput.accept=".json";impInput.style.display="none";
   impInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const fr2=new FileReader();
