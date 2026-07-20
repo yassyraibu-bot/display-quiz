@@ -950,11 +950,15 @@ function openGenreSwitcher(){
   var c=el("div");c.appendChild(el("h2",null,"ジャンル切替 / 追加"));var ov;
   c.appendChild(el("p","small muted","タップで切替 ／ ✏で名前変更 ／ 長押しで削除（問題は消えません・下の「削除済みジャンル」からいつでも復元できます）。"));
   var host=el("div");c.appendChild(host);
+  var hidOpen=false;
+  function genreCounts(){var m={},sg=seedGenreName();allQuestions().forEach(function(q){var gg=q.genre||sg;m[gg]=(m[gg]||0)+1;});return m;}
   function draw(){
     host.innerHTML="";
+    var gc=genreCounts();
     visibleGenres().forEach(function(g){
       var rw=el("div","row");rw.style.cssText="gap:6px;margin:4px 0;flex-wrap:nowrap;align-items:center";
-      var b=el("button","btn sec",(g===currentGenre?"● ":"")+g);
+      var b=el("button","btn sec");
+      b.innerHTML=(g===currentGenre?"● ":"")+escapeHtml(g)+' <span class="small muted">'+(gc[g]||0)+'問</span>';
       b.style.cssText="flex:1;text-align:left;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none";
       b.style.touchAction="pan-y";
       b.addEventListener("contextmenu",function(ev){ev.preventDefault();});
@@ -976,10 +980,31 @@ function openGenreSwitcher(){
       ed.onclick=function(){var nu=prompt("新しいジャンル名",g);if(nu==null)return;if(renameGenre(g,nu)){toast("ジャンル名を変更しました");setGenreBadge();render(_view||"home");draw();}};
       rw.appendChild(b);rw.appendChild(ed);host.appendChild(rw);
     });
-    var hiddenList=genres.filter(function(g){var h=genreCfg.hidden[g];return h&&h.h;});
+    var hiddenList=genres.filter(function(g){var h=genreCfg.hidden[g];return h&&h.h===1;});
     if(hiddenList.length){
-      host.appendChild(el("h3",null,"🗑 削除済みジャンル（タップで復元）"));
-      hiddenList.forEach(function(g){var rb=el("button","btn sec","↩ "+g+" を復元");rb.style.cssText="display:block;width:100%;text-align:left;margin:3px 0";rb.onclick=function(){genreCfg.hidden[g]={h:0,t:Date.now()};saveGenreCfg();toast("復元しました");draw();};host.appendChild(rb);});
+      var hh=el("button","btn sec","🗑 削除済みジャンル（"+hiddenList.length+"）"+(hidOpen?" ▲":" ▼"));
+      hh.style.cssText="display:block;width:100%;text-align:left;margin:10px 0 4px";
+      hh.onclick=function(){hidOpen=!hidOpen;draw();};
+      host.appendChild(hh);
+      if(hidOpen){
+        host.appendChild(el("p","small muted","↩ で復元 ／ 🗑 で一覧から完全に削除（問題データは消えません）"));
+        hiddenList.forEach(function(g){
+          var rw=el("div","row");rw.style.cssText="gap:6px;margin:3px 0;flex-wrap:nowrap;align-items:center";
+          var rb=el("button","btn sec");rb.innerHTML="↩ "+escapeHtml(g)+' を復元 <span class="small muted">'+(gc[g]||0)+'問</span>';
+          rb.style.cssText="flex:1;text-align:left";
+          rb.onclick=function(){genreCfg.hidden[g]={h:0,t:Date.now()};saveGenreCfg();toast("復元しました");draw();};
+          var pb=el("button","btn sec","🗑");pb.title="一覧から完全に削除";
+          pb.onclick=async function(){
+            var cnt=gc[g]||0;
+            var msg=cnt>0?("「"+g+"」を削除済み一覧から完全に消しますか？　このジャンルにはまだ "+cnt+" 問あり、消すと切替一覧から辿れなくなります（問題データ自体は残ります）。"):("「"+g+"」を削除済み一覧から完全に消しますか？（0問なので影響はありません）");
+            var ok=await confirmYesNo("完全に削除",msg);
+            if(!ok)return;
+            genreCfg.hidden[g]={h:2,t:Date.now()};saveGenreCfg();
+            toast("一覧から削除しました");draw();
+          };
+          rw.appendChild(rb);rw.appendChild(pb);host.appendChild(rw);
+        });
+      }
     }
   }
   draw();
